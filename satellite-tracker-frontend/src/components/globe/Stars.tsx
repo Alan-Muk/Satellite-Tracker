@@ -1,49 +1,93 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 
-import { PointPrimitiveCollection, Cartesian3, Color } from "cesium";
+interface Props {
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+}
 
-import { useCesium } from "resium";
+const STAR_COUNT = 500;
 
-export default function Stars() {
-    const { scene } = useCesium();
+const STAR_DISTANCE = 100;
 
-    const collection = useRef<PointPrimitiveCollection | null>(null);
+export default function Stars({ globeRef }: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
 
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+    if (!globe) {
+      return;
+    }
 
-        const stars = new PointPrimitiveCollection();
+    const scene = globe.scene();
 
-        scene.primitives.add(stars);
+    const positions = new Float32Array(STAR_COUNT * 3);
 
-        collection.current = stars;
+    const colors = new Float32Array(STAR_COUNT * 3);
 
-        for (let i = 0; i < 500; i++) {
-            stars.add({
-                position: Cartesian3.fromDegrees(
-                    Math.random() * 360 - 180,
+    for (let i = 0; i < STAR_COUNT; i++) {
+      //
+      // Uniform random direction.
+      //
+      const theta = Math.random() * Math.PI * 2;
 
-                    Math.random() * 180 - 90,
+      const phi = Math.acos(2 * Math.random() - 1);
 
-                    100_000_000,
-                ),
+      const sinPhi = Math.sin(phi);
 
-                pixelSize: Math.random() > 0.8 ? 2 : 1,
+      const x = Math.cos(theta) * sinPhi * STAR_DISTANCE;
 
-                color: Color.WHITE.withAlpha(0.6 + Math.random() * 0.4),
-            });
-        }
+      const y = Math.cos(phi) * STAR_DISTANCE;
 
-        scene.requestRender();
+      const z = Math.sin(theta) * sinPhi * STAR_DISTANCE;
 
-        return () => {
-            if (!stars.isDestroyed()) {
-                scene.primitives.remove(stars);
-            }
-        };
-    }, [scene]);
+      const offset = i * 3;
 
-    return null;
+      positions[offset] = x;
+      positions[offset + 1] = y;
+      positions[offset + 2] = z;
+
+      const brightness = 0.6 + Math.random() * 0.4;
+
+      colors[offset] = brightness;
+      colors[offset + 1] = brightness;
+      colors[offset + 2] = brightness;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const material = new THREE.PointsMaterial({
+      size: 0.35,
+
+      sizeAttenuation: false,
+
+      vertexColors: true,
+
+      transparent: true,
+
+      opacity: 0.9,
+
+      depthWrite: false,
+    });
+
+    const stars = new THREE.Points(geometry, material);
+
+    stars.name = "star-field";
+
+    scene.add(stars);
+
+    return () => {
+      scene.remove(stars);
+
+      geometry.dispose();
+
+      material.dispose();
+    };
+  }, [globeRef]);
+
+  return null;
 }

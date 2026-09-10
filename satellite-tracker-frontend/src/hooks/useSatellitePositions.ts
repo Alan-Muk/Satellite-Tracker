@@ -5,83 +5,83 @@ import { getPosition } from "../api";
 import type { Satellite, SatellitePosition } from "../api";
 
 interface Props {
-    satellites: Satellite[];
+  satellites: Satellite[];
 
-    selectedNorad: number | null;
+  selectedNorad: number | null;
 }
 
 export function useSatellitePositions({
-    satellites,
+  satellites,
 
-    selectedNorad,
+  selectedNorad,
 }: Props) {
-    const [visiblePositions, setVisiblePositions] = useState<
-        SatellitePosition[]
-    >([]);
+  const [visiblePositions, setVisiblePositions] = useState<SatellitePosition[]>(
+    [],
+  );
 
-    const [position, setPosition] = useState<SatellitePosition | null>(null);
+  const [position, setPosition] = useState<SatellitePosition | null>(null);
 
-    //
-    // Load all satellites once
-    //
+  //
+  // Load all satellites once
+  //
 
-    useEffect(() => {
-        async function loadPositions() {
-            const results = await Promise.allSettled(
-                satellites.map((satellite) => getPosition(satellite.norad_id)),
-            );
+  useEffect(() => {
+    async function loadPositions() {
+      const results = await Promise.allSettled(
+        satellites.map((satellite) => getPosition(satellite.norad_id)),
+      );
 
-            const positions = results
+      const positions = results
 
-                .filter((result) => result.status === "fulfilled")
+        .filter((result) => result.status === "fulfilled")
 
-                .map((result) => result.value);
+        .map((result) => result.value);
 
-            setVisiblePositions(positions);
-        }
+      setVisiblePositions(positions);
+    }
 
-        if (satellites.length > 0) {
-            loadPositions().catch(console.error);
-        }
-    }, [satellites]);
+    if (satellites.length > 0) {
+      loadPositions().catch(console.error);
+    }
+  }, [satellites]);
 
-    //
-    // Poll selected satellite
-    //
+  //
+  // Poll selected satellite
+  //
 
-    useEffect(() => {
-        if (selectedNorad === null) {
-            return;
-        }
+  useEffect(() => {
+    if (selectedNorad === null) {
+      return;
+    }
 
-        async function load() {
-            if (selectedNorad === null) {
-                return;
-            }
+    async function load() {
+      if (selectedNorad === null) {
+        return;
+      }
 
-            const noradId = selectedNorad;
+      const noradId = selectedNorad;
 
-            const data = await getPosition(noradId);
+      const data = await getPosition(noradId);
 
-            setPosition(data);
-        }
+      setPosition(data);
+    }
 
+    load().catch(console.error);
+
+    const timer = setInterval(
+      () => {
         load().catch(console.error);
+      },
 
-        const timer = setInterval(
-            () => {
-                load().catch(console.error);
-            },
+      5000,
+    );
 
-            5000,
-        );
+    return () => clearInterval(timer);
+  }, [selectedNorad]);
 
-        return () => clearInterval(timer);
-    }, [selectedNorad]);
+  return {
+    visiblePositions,
 
-    return {
-        visiblePositions,
-
-        position,
-    };
+    position,
+  };
 }

@@ -5,25 +5,25 @@ import { getSatellites, getSatelliteGroups } from "../api";
 import type { Satellite, SatelliteGroups } from "../api";
 
 export function useSatelliteData() {
-    const [satellites, setSatellites] = useState<Satellite[]>([]);
+  const [satellites, setSatellites] = useState<Satellite[]>([]);
 
-    const [groups, setGroups] = useState<SatelliteGroups>({});
+  const [groups, setGroups] = useState<SatelliteGroups>({});
 
-    useEffect(() => {
-        getSatellites()
-            .then(setSatellites)
+  useEffect(() => {
+    getSatellites()
+      .then(setSatellites)
 
-            .catch(console.error);
+      .catch(console.error);
 
-        getSatelliteGroups()
-            .then(setGroups)
+    getSatelliteGroups()
+      .then(setGroups)
 
-            .catch(console.error);
-    }, []);
+      .catch(console.error);
+  }, []);
 
-    return {
-        satellites,
+  return {
+    satellites,
 
-        groups,
-    };
+    groups,
+  };
 }

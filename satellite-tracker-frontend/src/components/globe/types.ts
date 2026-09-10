@@ -1,7 +1,7 @@
 export interface OrbitPoint {
-    latitude: number;
+  latitude: number;
 
-    longitude: number;
+  longitude: number;
 
-    altitude_km: number;
+  altitude_km: number;
 }

@@ -1,66 +1,140 @@
-import { useMemo } from "react";
+import { useEffect } from "react";
 
-import { Entity } from "resium";
+import type { MutableRefObject } from "react";
 
-import { Color } from "cesium";
+import type { GlobeMethods } from "react-globe.gl";
+
+import * as THREE from "three";
 
 import type { SatellitePosition } from "../../api";
 
 import { renderPosition } from "./rendering";
 
 interface Props {
-    position: SatellitePosition;
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+
+  position: SatellitePosition;
 }
 
-export default function SelectedSatellite({ position }: Props) {
-    const cesiumPosition = useMemo(
-        () =>
-            renderPosition(
-                position.longitude,
-                position.latitude,
-                position.altitude_km,
-            ),
+export default function SelectedSatellite({
+  globeRef,
 
-        [position.longitude, position.latitude, position.altitude_km],
+  position,
+}: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
+
+    if (!globe) {
+      return;
+    }
+
+    const scene = globe.scene();
+
+    const renderPositionData = renderPosition(
+      position.longitude,
+
+      position.latitude,
+
+      position.altitude_km,
     );
 
-    const description = useMemo(
-        () => `
+    const coords = globe.getCoords(
+      renderPositionData.lat,
 
-NORAD: ${position.norad_id}
+      renderPositionData.lng,
 
-Latitude:
-${position.latitude.toFixed(2)}
-
-Longitude:
-${position.longitude.toFixed(2)}
-
-Altitude:
-${position.altitude_km.toFixed(0)} km
-
-Velocity:
-${position.velocity_km_s.toFixed(2)} km/s
-
-            `,
-
-        [position],
+      renderPositionData.altitude,
     );
 
-    return (
-        <Entity
-            position={cesiumPosition}
+    //
+    // Outer white ring.
+    //
 
-            point={{
-                pixelSize: 18,
+    const outlineGeometry = new THREE.SphereGeometry(
+      0.026,
 
-                color: Color.CYAN,
+      16,
 
-                outlineColor: Color.WHITE,
-
-                outlineWidth: 3,
-            }}
-
-            description={description}
-        />
+      16,
     );
+
+    const outlineMaterial = new THREE.MeshBasicMaterial({
+      color: "#ffffff",
+
+      transparent: true,
+
+      opacity: 0.95,
+
+      depthTest: false,
+    });
+
+    const outline = new THREE.Mesh(
+      outlineGeometry,
+
+      outlineMaterial,
+    );
+
+    //
+    // Inner cyan marker.
+    //
+
+    const markerGeometry = new THREE.SphereGeometry(
+      0.018,
+
+      16,
+
+      16,
+    );
+
+    const markerMaterial = new THREE.MeshBasicMaterial({
+      color: "#00ffff",
+
+      depthTest: false,
+    });
+
+    const marker = new THREE.Mesh(
+      markerGeometry,
+
+      markerMaterial,
+    );
+
+    marker.position.set(
+      coords.x,
+
+      coords.y,
+
+      coords.z,
+    );
+
+    outline.position.copy(marker.position);
+
+    //
+    // Keep the selected marker above the satellite
+    // points and orbit geometry.
+    //
+
+    marker.renderOrder = 1000;
+
+    outline.renderOrder = 999;
+
+    scene.add(outline);
+
+    scene.add(marker);
+
+    return () => {
+      scene.remove(marker);
+
+      scene.remove(outline);
+
+      marker.geometry.dispose();
+
+      marker.material.dispose();
+
+      outline.geometry.dispose();
+
+      outline.material.dispose();
+    };
+  }, [globeRef, position.latitude, position.longitude, position.altitude_km]);
+
+  return null;
 }

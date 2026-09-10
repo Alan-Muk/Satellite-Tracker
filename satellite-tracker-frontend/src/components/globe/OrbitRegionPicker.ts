@@ -1,45 +1,77 @@
-import { ScreenSpaceEventHandler, ScreenSpaceEventType } from "cesium";
-
-import type { Scene, Cartesian2 } from "cesium";
+import * as THREE from "three";
 
 import type { OrbitRegion } from "../../api";
 
 interface Props {
-    scene: Scene;
+  scene: THREE.Scene;
 
-    onSelect: (region: OrbitRegion) => void;
+  camera: THREE.Camera;
+
+  canvas: HTMLCanvasElement;
+
+  onSelect: (region: OrbitRegion) => void;
 }
 
 export function createOrbitRegionPicker({
-    scene,
+  scene,
 
-    onSelect,
+  camera,
+
+  canvas,
+
+  onSelect,
 }: Props) {
-    const handler = new ScreenSpaceEventHandler(scene.canvas);
+  const raycaster = new THREE.Raycaster();
 
-    handler.setInputAction(
-        (movement: { position: Cartesian2 }) => {
-            const picked = scene.pick(movement.position);
+  const pointer = new THREE.Vector2();
 
-            const entity = picked?.id;
+  raycaster.params.Line.threshold = 0.01;
 
-            if (
-                entity &&
-                typeof entity.id === "string" &&
-                entity.id.startsWith("orbit-region-")
-            ) {
-                const region = entity.id.replace(
-                    "orbit-region-",
+  const shells: THREE.Object3D[] = [];
 
-                    "",
-                ) as OrbitRegion;
+  scene.traverse((object) => {
+    if (object.name.startsWith("orbit-shell-")) {
+      shells.push(object);
+    }
+  });
 
-                onSelect(region);
-            }
-        },
+  const handleClick = (event: MouseEvent) => {
+    const rect = canvas.getBoundingClientRect();
 
-        ScreenSpaceEventType.LEFT_CLICK,
-    );
+    if (rect.width === 0 || rect.height === 0) {
+      return;
+    }
 
-    return handler;
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+
+    const intersections = raycaster.intersectObjects(shells, true);
+
+    if (intersections.length === 0) {
+      return;
+    }
+
+    let object: THREE.Object3D | undefined = intersections[0].object;
+
+    while (object) {
+      const region = object.userData.region as OrbitRegion | undefined;
+
+      if (region) {
+        onSelect(region);
+
+        return;
+      }
+
+      object = object.parent ?? undefined;
+    }
+  };
+
+  canvas.addEventListener("click", handleClick);
+
+  return () => {
+    canvas.removeEventListener("click", handleClick);
+  };
 }

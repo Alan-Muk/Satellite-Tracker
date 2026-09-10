@@ -1,6 +1,6 @@
-import { Cartesian3 } from "cesium";
+import type { AnimatedSatellitePosition } from "./SatelliteAnimator";
 
-export const trails = new Map<number, Cartesian3[]>();
+export const trails = new Map<number, AnimatedSatellitePosition[]>();
 
 export const fullOrbitTrails = new Set<number>();
 
@@ -9,11 +9,11 @@ export const fullOrbitTrails = new Set<number>();
 //
 
 export function enableFullOrbitTrail(noradId: number) {
-    fullOrbitTrails.add(noradId);
+  fullOrbitTrails.add(noradId);
 }
 
 export function disableFullOrbitTrail(noradId: number) {
-    fullOrbitTrails.delete(noradId);
+  fullOrbitTrails.delete(noradId);
 }
 
 //
@@ -21,45 +21,36 @@ export function disableFullOrbitTrail(noradId: number) {
 //
 
 export function pushTrail(
-    norad: number,
-
-    position: Cartesian3,
+  noradId: number,
+  position: AnimatedSatellitePosition,
 ) {
-    let trail = trails.get(norad);
+  let trail = trails.get(noradId);
 
-    if (!trail) {
-        trail = [];
+  if (!trail) {
+    trail = [];
 
-        trails.set(
-            norad,
+    trails.set(noradId, trail);
+  }
 
-            trail,
-        );
-    }
+  trail.push(position);
 
-    trail.push(position);
+  const limit = fullOrbitTrails.has(noradId) ? 720 : 80;
 
-    const limit = fullOrbitTrails.has(norad) ? 720 : 80;
-
-    if (trail.length > limit) {
-        trail.shift();
-    }
+  if (trail.length > limit) {
+    trail.shift();
+  }
 }
 
 //
 // Randomly create the atomic orbit effect
 //
 
-export function assignRandomOrbitTrails(
-    noradIds: number[],
-
-    percentage = 0.05,
-) {
-    for (const id of noradIds) {
-        if (Math.random() < percentage) {
-            enableFullOrbitTrail(id);
-        }
+export function assignRandomOrbitTrails(noradIds: number[], percentage = 0.05) {
+  for (const noradId of noradIds) {
+    if (Math.random() < percentage) {
+      enableFullOrbitTrail(noradId);
     }
+  }
 }
 
 //
@@ -67,15 +58,15 @@ export function assignRandomOrbitTrails(
 //
 
 export function syncTrails(activeNoradIds: number[]) {
-    const active = new Set(activeNoradIds);
+  const active = new Set(activeNoradIds);
 
-    for (const norad of trails.keys()) {
-        if (!active.has(norad)) {
-            trails.delete(norad);
+  for (const noradId of trails.keys()) {
+    if (!active.has(noradId)) {
+      trails.delete(noradId);
 
-            fullOrbitTrails.delete(norad);
-        }
+      fullOrbitTrails.delete(noradId);
     }
+  }
 }
 
 //
@@ -83,7 +74,7 @@ export function syncTrails(activeNoradIds: number[]) {
 //
 
 export function clearTrails() {
-    trails.clear();
+  trails.clear();
 
-    fullOrbitTrails.clear();
+  fullOrbitTrails.clear();
 }

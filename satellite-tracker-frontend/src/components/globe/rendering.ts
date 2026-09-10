@@ -1,17 +1,25 @@
-import { Cartesian3 } from "cesium";
-
 export const VISUAL_ALTITUDE_SCALE = 3;
 
+export interface RenderPosition {
+  lat: number;
+
+  lng: number;
+
+  altitude: number;
+}
+
 export function renderPosition(
-    longitude: number,
-    latitude: number,
-    altitudeKm: number,
-): Cartesian3 {
-    return Cartesian3.fromDegrees(
-        longitude,
+  longitude: number,
 
-        latitude,
+  latitude: number,
 
-        altitudeKm * VISUAL_ALTITUDE_SCALE * 1000,
-    );
+  altitudeKm: number,
+): RenderPosition {
+  return {
+    lat: latitude,
+
+    lng: longitude,
+
+    altitude: (altitudeKm * VISUAL_ALTITUDE_SCALE) / 6378.137,
+  };
 }

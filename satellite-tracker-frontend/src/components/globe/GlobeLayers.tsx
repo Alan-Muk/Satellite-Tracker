@@ -1,80 +1,74 @@
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+
 import Earth from "./Earth";
 import OrbitRegions from "./OrbitRegions";
-
 import SatellitePoints from "./SatellitePoints";
 import SatelliteTrail from "./SatelliteTrail";
-
 import SelectedSatellite from "./SelectedSatellite";
 import SelectedOrbitPrediction from "./SelectedOrbitPrediction";
 
 import type { Satellite, SatellitePosition, OrbitRegion } from "../../api";
 
 interface Props {
-    position: SatellitePosition | null;
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
 
-    satellites: SatellitePosition[];
+  position: SatellitePosition | null;
 
-    satelliteData: Satellite[];
+  satellites: SatellitePosition[];
 
-    highlightedIds: number[];
+  satelliteData: Satellite[];
 
-    selectedNorad: number | null;
+  highlightedIds: number[];
 
-    selectedRegion: OrbitRegion | "ALL";
+  selectedNorad: number | null;
 
-    onSelect: (noradId: number) => void;
+  selectedRegion: OrbitRegion | "ALL";
 
-    onRegionSelect: (region: OrbitRegion | "ALL") => void;
+  onSelect: (noradId: number) => void;
+
+  onRegionSelect: (region: OrbitRegion | "ALL") => void;
 }
 
 export default function GlobeLayers({
-    position,
-
-    satellites,
-
-    satelliteData,
-
-    highlightedIds,
-
-    selectedNorad,
-
-    selectedRegion,
-
-    onSelect,
-
-    onRegionSelect,
+  globeRef,
+  position,
+  satellites,
+  satelliteData,
+  highlightedIds,
+  selectedNorad,
+  selectedRegion,
+  onRegionSelect,
+  onSelect,
 }: Props) {
-    return (
-        <>
-            <Earth />
+  return (
+    <>
+      <Earth globeRef={globeRef} />
 
-            <OrbitRegions
-                selectedRegion={selectedRegion}
+      <OrbitRegions
+        globeRef={globeRef}
+        selectedRegion={selectedRegion}
+        onSelectRegion={onRegionSelect}
+      />
 
-                onSelectRegion={onRegionSelect}
-            />
+      <SatelliteTrail globeRef={globeRef} satelliteData={satelliteData} />
 
-            <SatelliteTrail satelliteData={satelliteData} />
+      <SatellitePoints
+        globeRef={globeRef}
+        satellites={satellites}
+        satelliteData={satelliteData}
+        highlightedIds={highlightedIds}
+        selectedNorad={selectedNorad}
+        onSelect={onSelect}
+      />
 
-            <SatellitePoints
-                satellites={satellites}
+      {selectedNorad !== null && (
+        <SelectedOrbitPrediction globeRef={globeRef} noradId={selectedNorad} />
+      )}
 
-                satelliteData={satelliteData}
-
-                highlightedIds={highlightedIds}
-
-                selectedNorad={selectedNorad}
-
-                onSelect={onSelect}
-            />
-
-            {selectedNorad !== null && (
-                <SelectedOrbitPrediction noradId={selectedNorad} />
-            )}
-
-            {selectedNorad !== null && position && (
-                <SelectedSatellite position={position} />
-            )}
-        </>
-    );
+      {selectedNorad !== null && position && (
+        <SelectedSatellite globeRef={globeRef} position={position} />
+      )}
+    </>
+  );
 }

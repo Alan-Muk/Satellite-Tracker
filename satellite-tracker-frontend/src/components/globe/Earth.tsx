@@ -1,48 +1,38 @@
 import { useEffect } from "react";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 
-import { Globe, useCesium } from "resium";
+interface Props {
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+}
 
-import { Color } from "cesium";
+export default function Earth({ globeRef }: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
 
-export default function Earth() {
-    const { scene } = useCesium();
+    if (!globe) {
+      return;
+    }
 
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+    const scene = globe.scene();
+    const controls = globe.controls();
 
-        const currentScene = scene;
-        const globe = currentScene.globe;
+    //
+    // Dark space background
+    //
+    scene.background = new THREE.Color("#02040a");
 
-        //
-        // Dark grayscale Earth
-        //
-        globe.baseColor = Color.fromCssColorString("#303030");
-        globe.atmosphereLightIntensity = 0.15;
+    //
+    // Slow Earth rotation
+    //
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.02;
 
-        currentScene.backgroundColor = Color.fromCssColorString("#02040a");
+    return () => {
+      controls.autoRotate = false;
+    };
+  }, [globeRef]);
 
-        //
-        // Slow Earth rotation
-        //
-        let lastTime = performance.now();
-
-        const rotate = () => {
-            const now = performance.now();
-            const delta = (now - lastTime) / 1000;
-            lastTime = now;
-
-            currentScene.camera.rotateRight(delta * 0.002);
-            currentScene.requestRender();
-        };
-
-        currentScene.postRender.addEventListener(rotate);
-
-        return () => {
-            currentScene.postRender.removeEventListener(rotate);
-        };
-    }, [scene]);
-
-    return <Globe showGroundAtmosphere enableLighting />;
+  return null;
 }

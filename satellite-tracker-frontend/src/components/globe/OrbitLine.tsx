@@ -1,57 +1,37 @@
-import { useMemo } from "react";
-
-import { Entity, PolylineGraphics } from "resium";
-
-import { Cartesian3, Color } from "cesium";
-
 import type { OrbitPrediction } from "../../api";
 
+export interface OrbitLineData {
+  points: OrbitPrediction["points"];
+
+  color: string;
+
+  width: number;
+}
+
 interface Props {
-    prediction: OrbitPrediction;
+  prediction: OrbitPrediction;
 
-    color?: Color;
+  color?: string;
 
-    width?: number;
+  width?: number;
 }
 
 export default function OrbitLine({
-    prediction,
+  prediction,
 
-    color = Color.CYAN.withAlpha(0.55),
+  color = "rgba(0, 255, 255, 0.55)",
 
-    width = 2,
-}: Props) {
-    const positions = useMemo(() => {
-        if (!prediction.points || prediction.points.length < 2) {
-            return [];
-        }
+  width = 2,
+}: Props): OrbitLineData | null {
+  if (!prediction.points || prediction.points.length < 2) {
+    return null;
+  }
 
-        return prediction.points.map((point) =>
-            Cartesian3.fromDegrees(
-                point.longitude,
+  return {
+    points: prediction.points,
 
-                point.latitude,
+    color,
 
-                point.altitude_km * 1000,
-            ),
-        );
-    }, [prediction]);
-
-    if (positions.length < 2) {
-        return null;
-    }
-
-    return (
-        <Entity>
-            <PolylineGraphics
-                positions={positions}
-
-                width={width}
-
-                material={color}
-
-                clampToGround={false}
-            />
-        </Entity>
-    );
+    width,
+  };
 }

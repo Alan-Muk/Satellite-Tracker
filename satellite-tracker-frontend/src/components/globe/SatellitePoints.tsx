@@ -1,192 +1,394 @@
 import { useEffect, useRef } from "react";
-
-import {
-    PointPrimitiveCollection,
-    PointPrimitive,
-    ScreenSpaceEventHandler,
-    ScreenSpaceEventType,
-} from "cesium";
-
-import { useCesium } from "resium";
-
-import { Cartesian2 } from "cesium";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 
 import type { Satellite, SatellitePosition } from "../../api";
 
-import type { AnimatedSatellite } from "./SatelliteAnimator";
+import {
+  SatelliteAnimator,
+  type AnimatedSatellite,
+  type AnimatedSatellitePosition,
+  createAnimatedSatellite,
+} from "./SatelliteAnimator";
 
-import { SatelliteAnimator } from "./SatelliteAnimator";
+import {
+  assignRandomOrbitTrails,
+  pushTrail,
+  syncTrails,
+} from "./satelliteTrails";
 
-import { renderPosition } from "./rendering";
-
-import SatellitePointLayer from "./SatellitePointLayer";
-
-import { pushTrail } from "./satelliteTrails";
-
-import { Cartesian3 } from "cesium";
-
-import { trails } from "./satelliteTrails";
+import { getPrediction } from "./predictionStore";
+import { getSatelliteColor } from "./satelliteColors";
 
 interface Props {
-    satellites: SatellitePosition[];
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
 
-    satelliteData: Satellite[];
+  satellites: SatellitePosition[];
 
-    highlightedIds: number[];
+  satelliteData: Satellite[];
 
-    selectedNorad: number | null;
+  highlightedIds: number[];
 
-    onSelect: (noradId: number) => void;
+  selectedNorad: number | null;
+
+  onSelect: (noradId: number) => void;
+}
+
+const POINT_SIZE = 8;
+
+function createSatelliteMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    vertexColors: true,
+
+    vertexShader: `
+      attribute float pointSize;
+      varying vec3 vColor;
+
+      void main() {
+        vColor = color;
+
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+
+        gl_Position = projectionMatrix * mvPosition;
+
+        gl_PointSize = pointSize * (300.0 / -mvPosition.z);
+      }
+    `,
+
+    fragmentShader: `
+      varying vec3 vColor;
+
+      void main() {
+        vec2 coordinate = gl_PointCoord - vec2(0.5);
+
+        float distance = length(coordinate);
+
+        if (distance > 0.5) {
+          discard;
+        }
+
+        float alpha = 1.0 - smoothstep(0.35, 0.5, distance);
+
+        gl_FragColor = vec4(vColor, alpha);
+      }
+    `,
+  });
 }
 
 export default function SatellitePoints({
-    satellites,
-
-    satelliteData,
-
-    highlightedIds,
-
-    selectedNorad,
-
-    onSelect,
+  globeRef,
+  satellites,
+  satelliteData,
+  highlightedIds,
+  selectedNorad,
+  onSelect,
 }: Props) {
-    const { scene } = useCesium();
+  const pointsRef = useRef<THREE.Points | null>(null);
 
-    const collection = useRef<PointPrimitiveCollection | null>(null);
+  const geometryRef = useRef<THREE.BufferGeometry | null>(null);
 
-    const pointMap = useRef<Map<number, PointPrimitive>>(new Map());
+  const animatedSatellites = useRef<AnimatedSatellite[]>([]);
 
-    const animatedSatellites = useRef<AnimatedSatellite[]>([]);
+  const positionsRef = useRef<Map<number, AnimatedSatellitePosition>>(
+    new Map(),
+  );
 
-    const animator = useRef<SatelliteAnimator | null>(null);
+  const noradIdsRef = useRef<number[]>([]);
 
-    //
-    // Create Cesium point collection
-    //
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+  //
+  // Create the THREE.Points object.
+  //
+  useEffect(() => {
+    const globe = globeRef.current;
 
-        const points = new PointPrimitiveCollection();
+    if (!globe) {
+      return;
+    }
 
-        scene.primitives.add(points);
+    const scene = globe.scene();
 
-        collection.current = points;
+    const geometry = new THREE.BufferGeometry();
 
-        const handler = new ScreenSpaceEventHandler(scene.canvas);
+    const material = createSatelliteMaterial();
 
-        handler.setInputAction(
-            (movement: { position: Cartesian2 }) => {
-                const picked = scene.pick(movement.position);
+    const points = new THREE.Points(geometry, material);
 
-                const pickedSatellite = picked?.id as
-                    SatellitePosition | undefined;
+    points.name = "satellite-points";
 
-                if (pickedSatellite?.norad_id !== undefined) {
-                    onSelect(pickedSatellite.norad_id);
-                }
-            },
+    points.frustumCulled = false;
 
-            ScreenSpaceEventType.LEFT_CLICK,
-        );
+    points.renderOrder = 100;
 
-        return () => {
-            handler.destroy();
+    scene.add(points);
 
-            if (!points.isDestroyed()) {
-                scene.primitives.remove(points);
-            }
+    pointsRef.current = points;
+    geometryRef.current = geometry;
 
-            pointMap.current.clear();
+    return () => {
+      scene.remove(points);
 
-            collection.current = null;
-        };
-    }, [scene, onSelect]);
+      geometry.dispose();
+      material.dispose();
 
-    //
-    // Animation loop
-    //
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+      pointsRef.current = null;
+      geometryRef.current = null;
+    };
+  }, [globeRef]);
 
-        animator.current = new SatelliteAnimator(
-            (
-                noradId,
+  //
+  // Build satellite state and geometry.
+  //
+  useEffect(() => {
+    const globe = globeRef.current;
+    const points = pointsRef.current;
 
-                position,
-            ) => {
-                const point = pointMap.current.get(noradId);
+    if (!globe || !points) {
+      return;
+    }
 
-                if (point) {
-                    point.position = position;
-                }
-
-                const trail = trails.get(noradId);
-
-                const last = trail?.[trail.length - 1];
-
-                if (
-                    !last ||
-                    !Cartesian3.equals(
-                        last,
-
-                        position,
-                    )
-                ) {
-                    pushTrail(
-                        noradId,
-
-                        position,
-                    );
-                }
-            },
-        );
-
-        let lastTime = performance.now();
-
-        function tick() {
-            const now = performance.now();
-
-            const deltaSeconds = (now - lastTime) / 1000;
-
-            lastTime = now;
-
-            animator.current?.update(
-                animatedSatellites.current,
-
-                deltaSeconds,
-
-                renderPosition,
-            );
-
-            scene?.requestRender();
-        }
-
-        scene.postRender.addEventListener(tick);
-
-        return () => {
-            scene.postRender.removeEventListener(tick);
-        };
-    }, [scene]);
-
-    return (
-        <SatellitePointLayer
-            satellites={satellites}
-
-            satelliteData={satelliteData}
-
-            highlightedIds={highlightedIds}
-
-            selectedNorad={selectedNorad}
-
-            collection={collection}
-
-            pointMap={pointMap}
-
-            animatedSatellites={animatedSatellites}
-        />
+    const metadataMap = new Map(
+      satelliteData.map((satellite) => [satellite.norad_id, satellite]),
     );
+
+    const activeIds = satellites.map((satellite) => satellite.norad_id);
+
+    syncTrails(activeIds);
+
+    assignRandomOrbitTrails(activeIds, 0.08);
+
+    const nextAnimated: AnimatedSatellite[] = [];
+
+    const positions = new Float32Array(satellites.length * 3);
+
+    const colors = new Float32Array(satellites.length * 3);
+
+    const sizes = new Float32Array(satellites.length);
+
+    noradIdsRef.current = satellites.map((satellite) => satellite.norad_id);
+
+    positionsRef.current.clear();
+
+    satellites.forEach((satellite, index) => {
+      const metadata = metadataMap.get(satellite.norad_id);
+
+      const prediction = getPrediction(satellite.norad_id);
+
+      const altitude = metadata?.orbit?.altitude_km ?? satellite.altitude_km;
+
+      const animated: AnimatedSatellite = prediction
+        ? {
+            norad_id: satellite.norad_id,
+            prediction: prediction.points,
+            step_seconds: prediction.step_seconds,
+            elapsed_seconds: Math.random() * 500,
+          }
+        : createAnimatedSatellite(satellite.norad_id, altitude, 20);
+
+      nextAnimated.push(animated);
+
+      const currentPosition: AnimatedSatellitePosition = {
+        latitude: satellite.latitude,
+        longitude: satellite.longitude,
+        altitude_km: satellite.altitude_km,
+      };
+
+      positionsRef.current.set(satellite.norad_id, currentPosition);
+
+      const coords = globe.getCoords(
+        satellite.latitude,
+        satellite.longitude,
+        satellite.altitude_km / 6378.137,
+      );
+
+      const offset = index * 3;
+
+      positions[offset] = coords.x;
+      positions[offset + 1] = coords.y;
+      positions[offset + 2] = coords.z;
+
+      const fallbackSatellite = {
+        ...satellite,
+        name: "Unknown",
+        group: "UNKNOWN",
+      };
+
+      const color = new THREE.Color(
+        getSatelliteColor(metadata ?? fallbackSatellite),
+      );
+
+      const isHighlighted = highlightedIds.includes(satellite.norad_id);
+
+      const isSelected = satellite.norad_id === selectedNorad;
+
+      if (isSelected) {
+        color.multiplyScalar(1.5);
+        sizes[index] = 16;
+      } else if (isHighlighted) {
+        sizes[index] = 11;
+      } else {
+        sizes[index] = POINT_SIZE;
+      }
+
+      colors[offset] = color.r;
+      colors[offset + 1] = color.g;
+      colors[offset + 2] = color.b;
+
+      pushTrail(satellite.norad_id, {
+        latitude: satellite.latitude,
+        longitude: satellite.longitude,
+        altitude_km: satellite.altitude_km,
+      });
+    });
+
+    animatedSatellites.current = nextAnimated;
+
+    geometryRef.current?.dispose();
+
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    geometry.setAttribute("pointSize", new THREE.BufferAttribute(sizes, 1));
+
+    geometry.computeBoundingSphere();
+
+    points.geometry = geometry;
+
+    geometryRef.current = geometry;
+  }, [globeRef, satellites, satelliteData, highlightedIds, selectedNorad]);
+
+  //
+  // Animation.
+  //
+  useEffect(() => {
+    const globe = globeRef.current;
+    const points = pointsRef.current;
+
+    if (!globe || !points) {
+      return;
+    }
+
+    const animator = new SatelliteAnimator((noradId, position) => {
+      positionsRef.current.set(noradId, position);
+
+      pushTrail(noradId, position);
+    });
+
+    let lastTime = performance.now();
+
+    let frame = 0;
+
+    const tick = (now: number) => {
+      const deltaSeconds = (now - lastTime) / 1000;
+
+      lastTime = now;
+
+      animator.update(animatedSatellites.current, deltaSeconds);
+
+      const positionAttribute = points.geometry.getAttribute(
+        "position",
+      ) as THREE.BufferAttribute;
+
+      const positionArray = positionAttribute.array as Float32Array;
+
+      satellites.forEach((satellite, index) => {
+        const position = positionsRef.current.get(satellite.norad_id);
+
+        if (!position) {
+          return;
+        }
+
+        const coords = globe.getCoords(
+          position.latitude,
+          position.longitude,
+          position.altitude_km / 6378.137,
+        );
+
+        const offset = index * 3;
+
+        positionArray[offset] = coords.x;
+        positionArray[offset + 1] = coords.y;
+        positionArray[offset + 2] = coords.z;
+      });
+
+      positionAttribute.needsUpdate = true;
+
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [globeRef, satellites]);
+
+  useEffect(() => {
+    const globe = globeRef.current;
+    const points = pointsRef.current;
+
+    if (!globe || !points) {
+      return;
+    }
+
+    const renderer = globe.renderer();
+
+    if (!renderer) {
+      return;
+    }
+
+    const canvas = renderer.domElement;
+
+    const raycaster = new THREE.Raycaster();
+
+    raycaster.params.Points.threshold = 1.8;
+
+    const mouse = new THREE.Vector2();
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, globe.camera());
+
+      const intersections = raycaster.intersectObject(points, false);
+
+      if (intersections.length === 0) {
+        return;
+      }
+
+      const intersection = intersections[0];
+
+      if (intersection.index == null) {
+        return;
+      }
+
+      const noradId = noradIdsRef.current[intersection.index];
+
+      if (noradId == null) {
+        return;
+      }
+
+      onSelect(noradId);
+    };
+
+    canvas.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      canvas.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [globeRef, onSelect]);
+
+  //
+  // Keep the component mounted for the Three.js layer.
+  //
+  return null;
 }

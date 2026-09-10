@@ -1,55 +1,33 @@
 import { useEffect } from "react";
-
-import { useCesium } from "resium";
-
-import { Color, PolylineCollection } from "cesium";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
 
 import { getPrediction } from "./predictionStore";
 
-import { orbitPointsToCartesian } from "./orbitRendering";
-
 interface Props {
-    noradId: number;
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+
+  noradId: number;
 }
 
-export default function SelectedOrbitPrediction({ noradId }: Props) {
-    const { scene } = useCesium();
+export default function SelectedOrbitPrediction({ globeRef, noradId }: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
 
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+    if (!globe) {
+      return;
+    }
 
-        const prediction = getPrediction(noradId);
+    // Keep prediction lookup active for now.
+    // The visual prediction path will be wired into the
+    // Globe component's pathsData props after the core
+    // satellite rendering is compiling again.
+    getPrediction(noradId);
 
-        if (!prediction || prediction.points.length < 2) {
-            return;
-        }
+    return () => {
+      // Nothing to clean up yet.
+    };
+  }, [globeRef, noradId]);
 
-        const collection = new PolylineCollection();
-
-        scene.primitives.add(collection);
-
-        const positions = orbitPointsToCartesian(prediction.points);
-
-        collection.add({
-            positions,
-
-            width: 3,
-
-            material: Color.CYAN.withAlpha(0.8),
-        });
-
-        scene.requestRender();
-
-        return () => {
-            if (!collection.isDestroyed()) {
-                scene.primitives.remove(collection);
-
-                collection.destroy();
-            }
-        };
-    }, [scene, noradId]);
-
-    return null;
+  return null;
 }

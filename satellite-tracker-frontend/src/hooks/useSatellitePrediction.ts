@@ -5,19 +5,19 @@ import type { OrbitPrediction } from "../api";
 import { getPrediction } from "../components/globe/predictionStore";
 
 export function useSatellitePrediction(noradId: number | null) {
-    const [prediction, setPrediction] = useState<OrbitPrediction | undefined>(
-        undefined,
-    );
+  const [prediction, setPrediction] = useState<OrbitPrediction | undefined>(
+    undefined,
+  );
 
-    useEffect(() => {
-        if (noradId === null) {
-            setPrediction(undefined);
+  useEffect(() => {
+    if (noradId === null) {
+      setPrediction(undefined);
 
-            return;
-        }
+      return;
+    }
 
-        setPrediction(getPrediction(noradId));
-    }, [noradId]);
+    setPrediction(getPrediction(noradId));
+  }, [noradId]);
 
-    return prediction;
+  return prediction;
 }

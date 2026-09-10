@@ -1,113 +1,160 @@
-import { PolylineCollection, Color } from "cesium";
-
-import { useCesium } from "resium";
-
 import { useEffect } from "react";
-
-import { trails, fullOrbitTrails } from "./satelliteTrails";
-
-import { getTrailColor } from "./satelliteColors";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 
 import type { Satellite } from "../../api";
 
+import { trails, fullOrbitTrails } from "./satelliteTrails";
+import { getTrailColor } from "./satelliteColors";
+
 interface Props {
-    satelliteData: Satellite[];
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+  satelliteData: Satellite[];
 }
 
-export default function SatelliteTrail({ satelliteData }: Props) {
-    const { scene } = useCesium();
+const EARTH_RADIUS_KM = 6378.137;
 
-    useEffect(() => {
-        if (!scene) {
-            return;
+function altitudeToGlobeUnits(altitudeKm: number) {
+  return altitudeKm / EARTH_RADIUS_KM;
+}
+
+export default function SatelliteTrail({ globeRef, satelliteData }: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
+
+    if (!globe) {
+      return;
+    }
+
+    const scene = globe.scene();
+
+    const trailGroup = new THREE.Group();
+
+    trailGroup.name = "satellite-trails";
+
+    trailGroup.renderOrder = 50;
+
+    scene.add(trailGroup);
+
+    const metadataMap = new Map(
+      satelliteData.map((satellite) => [satellite.norad_id, satellite]),
+    );
+
+    const rebuildTrails = () => {
+      //
+      // Remove old line objects.
+      //
+      while (trailGroup.children.length > 0) {
+        const child = trailGroup.children[0];
+
+        trailGroup.remove(child);
+
+        if (child instanceof THREE.Line) {
+          child.geometry.dispose();
+
+          const material = child.material;
+
+          if (Array.isArray(material)) {
+            material.forEach((item) => item.dispose());
+          } else {
+            material.dispose();
+          }
+        }
+      }
+
+      //
+      // Build current trails from the exact same
+      // trail store used by SatellitePoints.
+      //
+      trails.forEach((points, noradId) => {
+        if (points.length < 2) {
+          return;
         }
 
-        const lines = new PolylineCollection();
+        const satellite = metadataMap.get(noradId);
 
-        scene.primitives.add(lines);
+        const color = satellite ? getTrailColor(satellite) : "#668899";
 
-        function updateTrails() {
-            if (lines.isDestroyed()) {
-                return;
-            }
+        const fullOrbit = fullOrbitTrails.has(noradId);
 
-            lines.removeAll();
+        const visiblePoints = fullOrbit
+          ? points
+          : points.slice(Math.max(0, points.length - 40));
 
-            trails.forEach(
-                (
-                    points,
-
-                    noradId,
-                ) => {
-                    if (points.length < 2) {
-                        return;
-                    }
-
-                    const satellite = satelliteData.find(
-                        (item) => item.norad_id === noradId,
-                    );
-
-                    const baseColor = satellite
-                        ? getTrailColor(satellite)
-                        : Color.GRAY.withAlpha(0.15);
-
-                    const fullOrbit = fullOrbitTrails.has(noradId);
-
-                    //
-                    // Full atomic-style orbit
-                    //
-
-                    if (fullOrbit) {
-                        lines.add({
-                            positions: points,
-
-                            width: 2,
-
-                            material: baseColor.withAlpha(0.45),
-                        });
-
-                        return;
-                    }
-
-                    //
-                    // Normal motion trail
-                    //
-
-                    const recentPoints = points.slice(
-                        Math.max(
-                            0,
-
-                            points.length - 40,
-                        ),
-                    );
-
-                    lines.add({
-                        positions: recentPoints,
-
-                        width: 1.2,
-
-                        material: baseColor.withAlpha(0.28),
-                    });
-                },
-            );
-
-            scene?.requestRender();
+        if (visiblePoints.length < 2) {
+          return;
         }
 
-        const interval = setInterval(
-            updateTrails,
+        const positions = new Float32Array(visiblePoints.length * 3);
 
-            100,
+        visiblePoints.forEach((point, index) => {
+          const coords = globe.getCoords(
+            point.latitude,
+            point.longitude,
+            altitudeToGlobeUnits(point.altitude_km),
+          );
+
+          const offset = index * 3;
+
+          positions[offset] = coords.x;
+          positions[offset + 1] = coords.y;
+          positions[offset + 2] = coords.z;
+        });
+
+        const geometry = new THREE.BufferGeometry();
+
+        geometry.setAttribute(
+          "position",
+          new THREE.BufferAttribute(positions, 3),
         );
 
-        return () => {
-            clearInterval(interval);
+        const material = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: fullOrbit ? 0.65 : 0.45,
+          depthWrite: false,
+          depthTest: true,
+        });
 
-            if (!lines.isDestroyed()) {
-                scene.primitives.remove(lines);
-            }
-        };
-    }, [scene, satelliteData]);
+        const line = new THREE.Line(geometry, material);
 
-    return null;
+        line.name = `satellite-trail-${noradId}`;
+
+        line.renderOrder = 50;
+
+        trailGroup.add(line);
+      });
+    };
+
+    rebuildTrails();
+
+    const interval = window.setInterval(rebuildTrails, 100);
+
+    return () => {
+      window.clearInterval(interval);
+
+      while (trailGroup.children.length > 0) {
+        const child = trailGroup.children[0];
+
+        trailGroup.remove(child);
+
+        if (child instanceof THREE.Line) {
+          child.geometry.dispose();
+
+          const material = child.material;
+
+          if (Array.isArray(material)) {
+            material.forEach((item) => item.dispose());
+          } else {
+            material.dispose();
+          }
+        }
+      }
+
+      scene.remove(trailGroup);
+    };
+  }, [globeRef, satelliteData]);
+
+  return null;
 }

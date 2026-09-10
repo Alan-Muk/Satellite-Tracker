@@ -1,46 +1,23 @@
-use axum::{
-    routing::get,
-    Router,
-};
+use axum::{Router, routing::get};
 
 use tower_http::cors::CorsLayer;
 
 use crate::{
     api::health::health_check,
     api::satellites::{
-        get_satellite,
-        get_satellite_position,
-        get_satellite_prediction,
-        list_satellites,
-        get_satellite_groups,
-        get_satellite_orbits,
+        get_satellite, get_satellite_groups, get_satellite_orbits, get_satellite_position,
+        get_satellite_prediction, list_satellites,
     },
     state::AppState,
 };
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route(
-            "/health",
-            get(health_check),
-        )
-
-        .route(
-            "/satellites/groups",
-            get(get_satellite_groups)
-        )
-        .route(
-            "/satellites/orbits",
-            get(get_satellite_orbits),
-        )
-        .route(
-            "/satellites",
-            get(list_satellites),
-        )
-        .route(
-            "/satellites/{norad_id}",
-            get(get_satellite),
-        )
+        .route("/health", get(health_check))
+        .route("/satellites/groups", get(get_satellite_groups))
+        .route("/satellites/orbits", get(get_satellite_orbits))
+        .route("/satellites", get(list_satellites))
+        .route("/satellites/{norad_id}", get(get_satellite))
         .route(
             "/satellites/{norad_id}/position",
             get(get_satellite_position),
@@ -49,8 +26,6 @@ pub fn create_router(state: AppState) -> Router {
             "/satellites/{norad_id}/prediction",
             get(get_satellite_prediction),
         )
-
-
         .layer(
             CorsLayer::new()
                 .allow_origin(
@@ -58,9 +33,7 @@ pub fn create_router(state: AppState) -> Router {
                         .parse::<axum::http::HeaderValue>()
                         .unwrap(),
                 )
-                .allow_methods([
-                    axum::http::Method::GET,
-                ]),
+                .allow_methods([axum::http::Method::GET]),
         )
         .with_state(state)
 }

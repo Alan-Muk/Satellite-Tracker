@@ -3,86 +3,85 @@ import { useEffect, useState } from "react";
 import type { Satellite, OrbitRegion } from "../api";
 
 interface Props {
-    satellites: Satellite[];
+  satellites: Satellite[];
 }
 
 export function useSatelliteFilters({ satellites }: Props) {
-    const [selectedGroup, setSelectedGroup] = useState("ALL");
+  const [selectedGroup, setSelectedGroup] = useState("ALL");
 
-    const [selectedRegion, setSelectedRegion] = useState<OrbitRegion | "ALL">(
-        "ALL",
+  const [selectedRegion, setSelectedRegion] = useState<OrbitRegion | "ALL">(
+    "ALL",
+  );
+
+  const [highlightedIds, setHighlightedIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (selectedGroup === "ALL") {
+      setSelectedRegion("ALL");
+
+      return;
+    }
+
+    const matching = satellites.filter(
+      (satellite) => satellite.group === selectedGroup,
     );
 
-    const [highlightedIds, setHighlightedIds] = useState<number[]>([]);
+    const counts = matching.reduce(
+      (
+        acc,
 
-    useEffect(() => {
-        if (selectedGroup === "ALL") {
-            setSelectedRegion("ALL");
+        satellite,
+      ) => {
+        const region = satellite.orbit?.region;
 
-            return;
+        if (region) {
+          acc[region] = (acc[region] ?? 0) + 1;
         }
 
-        const matching = satellites.filter(
-            (satellite) => satellite.group === selectedGroup,
-        );
+        return acc;
+      },
 
-        const counts = matching.reduce(
-            (
-                acc,
+      {} as Record<string, number>,
+    );
 
-                satellite,
-            ) => {
-                const region = satellite.orbit?.region;
+    const dominant = Object.entries(counts)
 
-                if (region) {
-                    acc[region] = (acc[region] ?? 0) + 1;
-                }
+      .sort(
+        (
+          a,
 
-                return acc;
-            },
+          b,
+        ) => b[1] - a[1],
+      )[0];
 
-            {} as Record<string, number>,
-        );
+    if (dominant) {
+      setSelectedRegion(dominant[0] as OrbitRegion);
+    }
+  }, [selectedGroup, satellites]);
 
-        const dominant = Object.entries(counts)
+  useEffect(() => {
+    const filtered = satellites.filter((satellite) => {
+      const groupMatch =
+        selectedGroup === "ALL" || satellite.group === selectedGroup;
 
-            .sort(
-                (
-                    a,
+      const orbitMatch =
+        selectedRegion === "ALL" || satellite.orbit?.region === selectedRegion;
 
-                    b,
-                ) => b[1] - a[1],
-            )[0];
+      return groupMatch && orbitMatch;
+    });
 
-        if (dominant) {
-            setSelectedRegion(dominant[0] as OrbitRegion);
-        }
-    }, [selectedGroup, satellites]);
+    setHighlightedIds(filtered.map((satellite) => satellite.norad_id));
+  }, [satellites, selectedGroup, selectedRegion]);
 
-    useEffect(() => {
-        const filtered = satellites.filter((satellite) => {
-            const groupMatch =
-                selectedGroup === "ALL" || satellite.group === selectedGroup;
+  return {
+    selectedGroup,
 
-            const orbitMatch =
-                selectedRegion === "ALL" ||
-                satellite.orbit?.region === selectedRegion;
+    setSelectedGroup,
 
-            return groupMatch && orbitMatch;
-        });
+    selectedRegion,
 
-        setHighlightedIds(filtered.map((satellite) => satellite.norad_id));
-    }, [satellites, selectedGroup, selectedRegion]);
+    setSelectedRegion,
 
-    return {
-        selectedGroup,
-
-        setSelectedGroup,
-
-        selectedRegion,
-
-        setSelectedRegion,
-
-        highlightedIds,
-    };
+    highlightedIds,
+  };
 }

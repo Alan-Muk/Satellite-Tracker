@@ -1,7 +1,1 @@
-import { OpenStreetMapImageryProvider } from "cesium";
-
-export function createImageryProvider() {
-    return new OpenStreetMapImageryProvider({
-        url: "https://tile.openstreetmap.org/",
-    });
-}
+export const GLOBE_IMAGE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";

@@ -1,95 +1,57 @@
 import { useEffect, useRef } from "react";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
 
-import { useCesium } from "resium";
+interface Props {
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+}
 
-import { Cartesian3, Color } from "cesium";
+export default function GlobeScene({ globeRef }: Props) {
+  const initialized = useRef(false);
 
-import { createImageryProvider } from "./imagery";
+  useEffect(() => {
+    const globe = globeRef.current;
 
-import "cesium/Build/Cesium/Widgets/widgets.css";
+    if (!globe || initialized.current) {
+      return;
+    }
 
-export default function GlobeScene() {
-    const { viewer } = useCesium();
+    initialized.current = true;
 
-    const initialized = useRef(false);
+    //
+    // Initial camera
+    //
+    globe.pointOfView(
+      {
+        lat: 20,
 
-    useEffect(() => {
-        if (!viewer || initialized.current) {
-            return;
-        }
+        lng: 0,
 
-        initialized.current = true;
+        altitude: 1.41,
+      },
+      0,
+    );
 
-        const scene = viewer.scene;
+    //
+    // Camera / controls
+    //
+    const controls = globe.controls();
 
-        //
-        // Imagery
-        //
+    controls.enableZoom = true;
 
-        viewer.imageryLayers.removeAll();
+    controls.enablePan = false;
 
-        viewer.imageryLayers.addImageryProvider(createImageryProvider());
+    controls.enableRotate = true;
 
-        //
-        // Rendering
-        //
+    controls.minDistance = 1.05;
 
-        scene.requestRenderMode = true;
+    controls.maxDistance = 4;
 
-        scene.maximumRenderTimeChange = Infinity;
+    //
+    // Disable automatic damping.
+    //
+    controls.enableDamping = false;
+  }, [globeRef]);
 
-        //
-        // Space background
-        //
-
-        scene.backgroundColor = Color.fromCssColorString("#0b1d38");
-
-        //
-        // Earth appearance
-        //
-
-        const globe = scene.globe;
-
-        globe.showGroundAtmosphere = true;
-
-        globe.baseColor = Color.fromCssColorString("#050505");
-
-        globe.enableLighting = false;
-
-        //
-        // Atmosphere
-        //
-
-        scene.fog.enabled = true;
-
-        scene.fog.density = 0.0002;
-
-        //
-        // Camera limits
-        //
-
-        const cameraController = scene.screenSpaceCameraController;
-
-        cameraController.minimumZoomDistance = 3_000_000;
-
-        cameraController.maximumZoomDistance = 20_000_000;
-
-        //
-        // Initial camera
-        //
-
-        viewer.camera.setView({
-            destination: Cartesian3.fromDegrees(
-                0,
-
-                20,
-
-                9_000_000,
-            ),
-        });
-
-        scene.requestRender();
-    }, [viewer]);
-
-    return null;
+  return null;
 }

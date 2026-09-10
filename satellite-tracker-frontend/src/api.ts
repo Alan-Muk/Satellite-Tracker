@@ -5,113 +5,111 @@ export type SatelliteOrbits = Record<string, number>;
 export type OrbitRegion = "VLEO" | "LEO" | "MEO" | "GEO" | "HEO" | "UNKNOWN";
 
 export interface OrbitMetadata {
-    altitude_km: number;
+  altitude_km: number;
 
-    inclination_deg: number;
+  inclination_deg: number;
 
-    period_minutes: number;
+  period_minutes: number;
 
-    region: OrbitRegion;
+  region: OrbitRegion;
 }
 
 export interface Satellite {
-    norad_id: number;
+  norad_id: number;
 
-    name: string;
+  name: string;
 
-    group: string;
+  group: string;
 
-    orbit?: OrbitMetadata;
+  orbit?: OrbitMetadata;
 }
 
 export interface SatellitePosition {
-    norad_id: number;
+  norad_id: number;
 
-    latitude: number;
+  latitude: number;
 
-    longitude: number;
+  longitude: number;
 
-    altitude_km: number;
+  altitude_km: number;
 
-    velocity_km_s: number;
+  velocity_km_s: number;
 
-    timestamp: string;
+  timestamp: string;
 }
 
 export interface OrbitPoint {
-    latitude: number;
+  latitude: number;
 
-    longitude: number;
+  longitude: number;
 
-    altitude_km: number;
+  altitude_km: number;
 }
 
 export interface OrbitPrediction {
-    norad_id: number;
+  norad_id: number;
 
-    generated_at: string;
+  generated_at: string;
 
-    duration_minutes: number;
+  duration_minutes: number;
 
-    step_seconds: number;
+  step_seconds: number;
 
-    points: OrbitPoint[];
+  points: OrbitPoint[];
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
 export async function getSatellites(limit = 500): Promise<Satellite[]> {
-    const params = new URLSearchParams();
+  const params = new URLSearchParams();
 
-    params.set("limit", limit.toString());
+  params.set("limit", limit.toString());
 
-    const response = await fetch(`${API_BASE}/satellites?${params}`);
+  const response = await fetch(`${API_BASE}/satellites?${params}`);
 
-    if (!response.ok) {
-        throw new Error("Failed to fetch satellites");
-    }
+  if (!response.ok) {
+    throw new Error("Failed to fetch satellites");
+  }
 
-    return response.json();
+  return response.json();
 }
 
 export async function getPosition(noradId: number): Promise<SatellitePosition> {
-    const response = await fetch(`${API_BASE}/satellites/${noradId}/position`);
+  const response = await fetch(`${API_BASE}/satellites/${noradId}/position`);
 
-    if (!response.ok) {
-        throw new Error("Failed to fetch satellite position");
-    }
+  if (!response.ok) {
+    throw new Error("Failed to fetch satellite position");
+  }
 
-    return response.json();
+  return response.json();
 }
 
 export async function getPrediction(noradId: number): Promise<OrbitPrediction> {
-    const response = await fetch(
-        `${API_BASE}/satellites/${noradId}/prediction`,
-    );
+  const response = await fetch(`${API_BASE}/satellites/${noradId}/prediction`);
 
-    if (!response.ok) {
-        throw new Error("Failed to fetch satellite prediction");
-    }
+  if (!response.ok) {
+    throw new Error("Failed to fetch satellite prediction");
+  }
 
-    return response.json();
+  return response.json();
 }
 
 export async function getSatelliteGroups(): Promise<SatelliteGroups> {
-    const response = await fetch(`${API_BASE}/satellites/groups`);
+  const response = await fetch(`${API_BASE}/satellites/groups`);
 
-    if (!response.ok) {
-        throw new Error("Failed to fetch satellite groups");
-    }
+  if (!response.ok) {
+    throw new Error("Failed to fetch satellite groups");
+  }
 
-    return response.json();
+  return response.json();
 }
 
 export async function getSatelliteOrbits(): Promise<SatelliteOrbits> {
-    const response = await fetch(`${API_BASE}/satellites/orbits`);
+  const response = await fetch(`${API_BASE}/satellites/orbits`);
 
-    if (!response.ok) {
-        throw new Error("Failed to fetch satellite orbit regions");
-    }
+  if (!response.ok) {
+    throw new Error("Failed to fetch satellite orbit regions");
+  }
 
-    return response.json();
+  return response.json();
 }

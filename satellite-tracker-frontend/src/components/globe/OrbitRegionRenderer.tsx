@@ -1,98 +1,149 @@
-import { Entity, EllipsoidGraphics } from "resium";
-
-import { Cartesian3, Color } from "cesium";
+import { useEffect } from "react";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 
 import { VISUAL_ALTITUDE_SCALE } from "./rendering";
 
 import type { OrbitRegion } from "../../api";
 
 export interface Region {
-    name: OrbitRegion;
+  name: OrbitRegion;
 
-    altitudeKm: number;
+  altitudeKm: number;
 
-    color: string;
+  color: string;
 }
 
 export const regions: Region[] = [
-    {
-        name: "VLEO",
-        altitudeKm: 150,
-        color: "#00ffff",
-    },
+  {
+    name: "VLEO",
+    altitudeKm: 150,
+    color: "#00ffff",
+  },
 
-    {
-        name: "LEO",
-        altitudeKm: 800,
-        color: "#00aaff",
-    },
+  {
+    name: "LEO",
+    altitudeKm: 800,
+    color: "#00aaff",
+  },
 
-    {
-        name: "MEO",
-        altitudeKm: 10000,
-        color: "#bb55ff",
-    },
+  {
+    name: "MEO",
+    altitudeKm: 10000,
+    color: "#bb55ff",
+  },
 
-    {
-        name: "GEO",
-        altitudeKm: 35786,
-        color: "#ffaa00",
-    },
+  {
+    name: "GEO",
+    altitudeKm: 35786,
+    color: "#ffaa00",
+  },
 
-    {
-        name: "HEO",
-        altitudeKm: 20000,
-        color: "#ff3366",
-    },
+  {
+    name: "HEO",
+    altitudeKm: 20000,
+    color: "#ff3366",
+  },
 ];
 
 interface Props {
-    selectedRegion: OrbitRegion | "ALL";
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
+
+  selectedRegion: OrbitRegion | "ALL";
 }
 
-export default function OrbitRegionRenderer({ selectedRegion }: Props) {
-    return (
-        <>
-            {regions.map((region) => {
-                const selected = selectedRegion === region.name;
+const EARTH_RADIUS_KM = 6378.137;
 
-                const radius =
-                    6378137 + region.altitudeKm * VISUAL_ALTITUDE_SCALE * 1000;
+export default function OrbitRegionRenderer({
+  globeRef,
 
-                const color = Color.fromCssColorString(region.color);
+  selectedRegion,
+}: Props) {
+  useEffect(() => {
+    const globe = globeRef.current;
 
-                return (
-                    <Entity
-                        key={region.name}
+    if (!globe) {
+      return;
+    }
 
-                        id={`orbit-shell-${region.name}`}
+    const scene = globe.scene();
 
-                        position={Cartesian3.ZERO}
-                    >
-                        <EllipsoidGraphics
-                            radii={
-                                new Cartesian3(
-                                    radius,
+    const globeRadius = globe.getGlobeRadius();
 
-                                    radius,
+    const shells: THREE.LineSegments[] = [];
 
-                                    radius,
-                                )
-                            }
+    for (const region of regions) {
+      const radius =
+        globeRadius *
+        (1 + (region.altitudeKm / EARTH_RADIUS_KM) * VISUAL_ALTITUDE_SCALE);
 
-                            fill={false}
+      const sphere = new THREE.SphereGeometry(radius, 64, 32);
 
-                            outline={true}
+      const geometry = new THREE.WireframeGeometry(sphere);
 
-                            outlineColor={color.withAlpha(
-                                selected ? 0.95 : 0.18,
-                            )}
+      const material = new THREE.LineBasicMaterial({
+        color: new THREE.Color(region.color),
 
-                            outlineWidth={selected ? 3 : 1}
-                        />
-                    </Entity>
-                );
-            })}
-        </>
-    );
+        transparent: true,
+
+        opacity: selectedRegion === region.name ? 0.95 : 0.18,
+
+        depthWrite: false,
+      });
+
+      const shell = new THREE.LineSegments(geometry, material);
+
+      shell.name = `orbit-shell-${region.name}`;
+
+      shell.userData.region = region.name;
+
+      scene.add(shell);
+
+      shells.push(shell);
+
+      sphere.dispose();
+    }
+
+    return () => {
+      for (const shell of shells) {
+        scene.remove(shell);
+
+        shell.geometry.dispose();
+
+        const material = shell.material;
+
+        if (Array.isArray(material)) {
+          material.forEach((item) => item.dispose());
+        } else {
+          material.dispose();
+        }
+      }
+    };
+  }, [globeRef]);
+
+  useEffect(() => {
+    const globe = globeRef.current;
+
+    if (!globe) {
+      return;
+    }
+
+    const scene = globe.scene();
+
+    for (const region of regions) {
+      const shell = scene.getObjectByName(`orbit-shell-${region.name}`) as
+        THREE.LineSegments | undefined;
+
+      if (!shell) {
+        continue;
+      }
+
+      const material = shell.material as THREE.LineBasicMaterial;
+
+      material.opacity = selectedRegion === region.name ? 0.95 : 0.18;
+    }
+  }, [globeRef, selectedRegion]);
+
+  return null;
 }

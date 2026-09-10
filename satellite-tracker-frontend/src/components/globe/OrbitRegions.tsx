@@ -1,63 +1,57 @@
 import { useEffect } from "react";
-
-import { useCesium } from "resium";
+import type { MutableRefObject } from "react";
+import type { GlobeMethods } from "react-globe.gl";
 
 import type { OrbitRegion } from "../../api";
 
 import { useOrbitCamera } from "../../hooks/useOrbitCamera";
 
 import OrbitRegionRenderer from "./OrbitRegionRenderer";
-
 import { createOrbitRegionPicker } from "./OrbitRegionPicker";
 
 interface Props {
-    selectedRegion: OrbitRegion | "ALL";
+  globeRef: MutableRefObject<GlobeMethods | undefined>;
 
-    onSelectRegion: (region: OrbitRegion | "ALL") => void;
+  selectedRegion: OrbitRegion | "ALL";
+
+  onSelectRegion: (region: OrbitRegion | "ALL") => void;
 }
 
 export default function OrbitRegions({
-    selectedRegion,
-
-    onSelectRegion,
+  globeRef,
+  selectedRegion,
+  onSelectRegion,
 }: Props) {
-    const { scene } = useCesium();
+  const { flyToRegion } = useOrbitCamera({
+    globeRef,
+  });
 
-    const { flyToRegion } = useOrbitCamera();
+  useEffect(() => {
+    if (selectedRegion !== "ALL") {
+      flyToRegion(selectedRegion);
+    }
+  }, [selectedRegion, flyToRegion]);
 
-    //
-    // Camera movement
-    //
+  useEffect(() => {
+    const globe = globeRef.current;
 
-    useEffect(() => {
-        if (selectedRegion !== "ALL") {
-            flyToRegion(selectedRegion);
-        }
-    }, [selectedRegion, flyToRegion]);
+    if (!globe) {
+      return;
+    }
 
-    //
-    // Region click selection
-    //
+    const cleanup = createOrbitRegionPicker({
+      scene: globe.scene(),
+      camera: globe.camera(),
+      canvas: globe.renderer().domElement,
+      onSelect: (region) => {
+        onSelectRegion(region);
+      },
+    });
 
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+    return cleanup;
+  }, [globeRef, onSelectRegion]);
 
-        const handler = createOrbitRegionPicker({
-            scene,
-
-            onSelect: (region) => {
-                onSelectRegion(region);
-
-                flyToRegion(region);
-            },
-        });
-
-        return () => {
-            handler.destroy();
-        };
-    }, [scene, flyToRegion, onSelectRegion]);
-
-    return <OrbitRegionRenderer selectedRegion={selectedRegion} />;
+  return (
+    <OrbitRegionRenderer globeRef={globeRef} selectedRegion={selectedRegion} />
+  );
 }

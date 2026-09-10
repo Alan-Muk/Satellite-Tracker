@@ -1,19 +1,25 @@
-import { Cartesian3 } from "cesium";
-
 import type { OrbitPoint } from "../../api";
 
-import { VISUAL_ALTITUDE_SCALE } from "./rendering";
+export interface GlobeOrbitPoint {
+  latitude: number;
 
-export function orbitPointToCartesian(point: OrbitPoint): Cartesian3 {
-    return Cartesian3.fromDegrees(
-        point.longitude,
+  longitude: number;
 
-        point.latitude,
-
-        point.altitude_km * VISUAL_ALTITUDE_SCALE * 1000,
-    );
+  altitude_km: number;
 }
 
-export function orbitPointsToCartesian(points: OrbitPoint[]): Cartesian3[] {
-    return points.map(orbitPointToCartesian);
+export function orbitPointToGlobePoint(point: OrbitPoint): GlobeOrbitPoint {
+  return {
+    latitude: point.latitude,
+
+    longitude: point.longitude,
+
+    altitude_km: point.altitude_km,
+  };
+}
+
+export function orbitPointsToGlobePoints(
+  points: OrbitPoint[],
+): GlobeOrbitPoint[] {
+  return points.map(orbitPointToGlobePoint);
 }

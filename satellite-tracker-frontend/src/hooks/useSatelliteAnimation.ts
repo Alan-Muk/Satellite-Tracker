@@ -1,68 +1,50 @@
 import { useEffect, useRef } from "react";
 
-import { useCesium } from "resium";
-
 import {
-    SatelliteAnimator,
-    type AnimatedSatellite,
+  SatelliteAnimator,
+  type AnimatedSatellitePosition,
+  type AnimatedSatellite,
 } from "../components/globe/SatelliteAnimator";
 
-import { renderPosition } from "../components/globe/rendering";
-
-import type { PointPrimitive } from "cesium";
-
 interface Props {
-    satellites: AnimatedSatellite[];
+  satellites: AnimatedSatellite[];
 
-    points: Map<number, PointPrimitive>;
+  onPositionUpdate: (
+    noradId: number,
+    position: AnimatedSatellitePosition,
+  ) => void;
 }
 
-export function useSatelliteAnimation({
-    satellites,
+export function useSatelliteAnimation({ satellites, onPositionUpdate }: Props) {
+  const animator = useRef<SatelliteAnimator | null>(null);
 
-    points,
-}: Props) {
-    const { scene } = useCesium();
+  const animationFrame = useRef<number | null>(null);
 
-    const animator = useRef<SatelliteAnimator | null>(null);
+  useEffect(() => {
+    animator.current = new SatelliteAnimator(onPositionUpdate);
 
-    useEffect(() => {
-        if (!scene) {
-            return;
-        }
+    let lastTime = performance.now();
 
-        animator.current = new SatelliteAnimator((noradId, position) => {
-            const point = points.get(noradId);
+    const tick = (now: number) => {
+      const deltaSeconds = (now - lastTime) / 1000;
 
-            if (point) {
-                point.position = position;
-            }
-        });
+      lastTime = now;
 
-        let lastTime = performance.now();
+      animator.current?.update(satellites, deltaSeconds);
 
-        const tick = () => {
-            const now = performance.now();
+      animationFrame.current = requestAnimationFrame(tick);
+    };
 
-            const deltaSeconds = (now - lastTime) / 1000;
+    animationFrame.current = requestAnimationFrame(tick);
 
-            lastTime = now;
+    return () => {
+      if (animationFrame.current !== null) {
+        cancelAnimationFrame(animationFrame.current);
 
-            animator.current?.update(
-                satellites,
+        animationFrame.current = null;
+      }
 
-                deltaSeconds,
-
-                renderPosition,
-            );
-
-            scene.requestRender();
-        };
-
-        scene.postRender.addEventListener(tick);
-
-        return () => {
-            scene.postRender.removeEventListener(tick);
-        };
-    }, [scene, satellites, points]);
+      animator.current = null;
+    };
+  }, [satellites, onPositionUpdate]);
 }

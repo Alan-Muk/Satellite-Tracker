@@ -1,25 +1,32 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { GlobeMethods } from "react-globe.gl";
 import * as THREE from "three";
 
 import type { Satellite, SatellitePosition } from "../../api";
+import { getPrediction } from "../../api";
 
 import {
-  SatelliteAnimator,
   type AnimatedSatellite,
   type AnimatedSatellitePosition,
-  createAnimatedSatellite,
+  SatelliteAnimator,
+  elapsedSincePrediction,
 } from "./SatelliteAnimator";
 
 import {
-  assignRandomOrbitTrails,
   pushTrail,
   syncTrails,
+  assignFullOrbitSatellites,
 } from "./satelliteTrails";
 
-import { getPrediction } from "./predictionStore";
+import {
+  getPrediction as getStoredPrediction,
+  setPrediction,
+  subscribePrediction,
+} from "./predictionStore";
+
 import { getSatelliteColor } from "./satelliteColors";
+import { altitudeToGlobeUnits } from "./rendering";
 
 interface Props {
   globeRef: MutableRefObject<GlobeMethods | undefined>;
@@ -40,42 +47,88 @@ const POINT_SIZE = 8;
 function createSatelliteMaterial() {
   return new THREE.ShaderMaterial({
     transparent: true,
+
     depthWrite: false,
+
     vertexColors: true,
 
     vertexShader: `
-      attribute float pointSize;
-      varying vec3 vColor;
+  attribute float pointSize;
 
-      void main() {
-        vColor = color;
+  varying vec3 vColor;
 
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  void main() {
+    vColor = color;
 
-        gl_Position = projectionMatrix * mvPosition;
+    vec4 mvPosition =
+      modelViewMatrix *
+      vec4(position, 1.0);
 
-        gl_PointSize = pointSize * (300.0 / -mvPosition.z);
-      }
-    `,
+    gl_Position =
+      projectionMatrix *
+      mvPosition;
+
+    gl_PointSize =
+      pointSize *
+      (300.0 / -mvPosition.z);
+  }
+`,
 
     fragmentShader: `
-      varying vec3 vColor;
+  varying vec3 vColor;
 
-      void main() {
-        vec2 coordinate = gl_PointCoord - vec2(0.5);
+  void main() {
+    vec2 coordinate =
+      gl_PointCoord -
+      vec2(0.5);
 
-        float distance = length(coordinate);
+    float distance =
+      length(coordinate);
 
-        if (distance > 0.5) {
-          discard;
-        }
+    if (distance > 0.5) {
+      discard;
+    }
 
-        float alpha = 1.0 - smoothstep(0.35, 0.5, distance);
+    float alpha =
+      1.0 -
+      smoothstep(
+        0.35,
+        0.5,
+        distance
+      );
 
-        gl_FragColor = vec4(vColor, alpha);
-      }
-    `,
+    gl_FragColor =
+      vec4(
+        vColor,
+        alpha
+      );
+  }
+`,
   });
+}
+
+function toAnimatedPosition(
+  position: SatellitePosition,
+): AnimatedSatellitePosition {
+  return {
+    latitude: position.latitude,
+    longitude: position.longitude,
+    altitude_km: position.altitude_km,
+  };
+}
+
+function createStaticSatellite(position: SatellitePosition): AnimatedSatellite {
+  const animatedPosition = toAnimatedPosition(position);
+
+  return {
+    norad_id: position.norad_id,
+
+    prediction: [animatedPosition, animatedPosition],
+
+    step_seconds: 1,
+
+    elapsed_seconds: 0,
+  };
 }
 
 export default function SatellitePoints({
@@ -98,12 +151,75 @@ export default function SatellitePoints({
 
   const noradIdsRef = useRef<number[]>([]);
 
-  //
-  // Create the THREE.Points object.
-  //
+  const [predictionVersion, setPredictionVersion] = useState(0);
+
+  /*
+
+Notify this component when a backend prediction
+arrives or is replaced.
+*/
+  useEffect(() => {
+    return subscribePrediction(() => {
+      setPredictionVersion((version) => version + 1);
+    });
+  }, []);
+
+  /*
+
+Load predictions for displayed satellites.
+*/
+  useEffect(() => {
+    if (satellites.length === 0) {
+      return;
+    }
+    let cancelled = false;
+
+    async function loadPredictions() {
+      await Promise.all(
+        satellites.map(async (satellite) => {
+          const existing = getStoredPrediction(satellite.norad_id);
+
+          if (existing) {
+            return;
+          }
+
+          try {
+            const prediction = await getPrediction(satellite.norad_id);
+
+            if (cancelled) {
+              return;
+            }
+
+            setPrediction(prediction);
+          } catch (error) {
+            if (!cancelled) {
+              console.error(
+                `Failed to load prediction for ${satellite.norad_id}`,
+                error,
+              );
+            }
+          }
+        }),
+      );
+    }
+
+    loadPredictions().catch((error) => {
+      if (!cancelled) {
+        console.error("Failed to load satellite predictions", error);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [satellites]);
+
+  /*
+
+Create the THREE.Points object.
+*/
   useEffect(() => {
     const globe = globeRef.current;
-
     if (!globe) {
       return;
     }
@@ -125,22 +241,26 @@ export default function SatellitePoints({
     scene.add(points);
 
     pointsRef.current = points;
+
     geometryRef.current = geometry;
 
     return () => {
       scene.remove(points);
 
       geometry.dispose();
+
       material.dispose();
 
       pointsRef.current = null;
+
       geometryRef.current = null;
     };
   }, [globeRef]);
 
-  //
-  // Build satellite state and geometry.
-  //
+  /*
+
+Build the displayed satellite geometry.
+*/
   useEffect(() => {
     const globe = globeRef.current;
     const points = pointsRef.current;
@@ -157,7 +277,11 @@ export default function SatellitePoints({
 
     syncTrails(activeIds);
 
-    assignRandomOrbitTrails(activeIds, 0.08);
+    assignFullOrbitSatellites(
+      satelliteData.filter((satellite) =>
+        activeIds.includes(satellite.norad_id),
+      ),
+    );
 
     const nextAnimated: AnimatedSatellite[] = [];
 
@@ -167,56 +291,62 @@ export default function SatellitePoints({
 
     const sizes = new Float32Array(satellites.length);
 
-    noradIdsRef.current = satellites.map((satellite) => satellite.norad_id);
+    noradIdsRef.current = activeIds;
 
     positionsRef.current.clear();
 
     satellites.forEach((satellite, index) => {
-      const metadata = metadataMap.get(satellite.norad_id);
+      const storedPrediction = getStoredPrediction(satellite.norad_id);
 
-      const prediction = getPrediction(satellite.norad_id);
+      const animated =
+        storedPrediction && storedPrediction.points.length >= 2
+          ? {
+              norad_id: satellite.norad_id,
 
-      const altitude = metadata?.orbit?.altitude_km ?? satellite.altitude_km;
+              prediction: storedPrediction.points,
 
-      const animated: AnimatedSatellite = prediction
-        ? {
-            norad_id: satellite.norad_id,
-            prediction: prediction.points,
-            step_seconds: prediction.step_seconds,
-            elapsed_seconds: Math.random() * 500,
-          }
-        : createAnimatedSatellite(satellite.norad_id, altitude, 20);
+              step_seconds: storedPrediction.step_seconds,
+
+              elapsed_seconds: elapsedSincePrediction(
+                storedPrediction.generated_at,
+                storedPrediction.step_seconds,
+                storedPrediction.points.length,
+              ),
+            }
+          : createStaticSatellite(satellite);
 
       nextAnimated.push(animated);
 
-      const currentPosition: AnimatedSatellitePosition = {
-        latitude: satellite.latitude,
-        longitude: satellite.longitude,
-        altitude_km: satellite.altitude_km,
-      };
+      const currentPosition = toAnimatedPosition(satellite);
 
       positionsRef.current.set(satellite.norad_id, currentPosition);
 
       const coords = globe.getCoords(
         satellite.latitude,
         satellite.longitude,
-        satellite.altitude_km / 6378.137,
+        altitudeToGlobeUnits(satellite.altitude_km),
       );
 
       const offset = index * 3;
 
       positions[offset] = coords.x;
+
       positions[offset + 1] = coords.y;
+
       positions[offset + 2] = coords.z;
 
       const fallbackSatellite = {
         ...satellite,
+
         name: "Unknown",
+
         group: "UNKNOWN",
       };
 
       const color = new THREE.Color(
-        getSatelliteColor(metadata ?? fallbackSatellite),
+        getSatelliteColor(
+          metadataMap.get(satellite.norad_id) ?? fallbackSatellite,
+        ),
       );
 
       const isHighlighted = highlightedIds.includes(satellite.norad_id);
@@ -225,6 +355,7 @@ export default function SatellitePoints({
 
       if (isSelected) {
         color.multiplyScalar(1.5);
+
         sizes[index] = 16;
       } else if (isHighlighted) {
         sizes[index] = 11;
@@ -233,19 +364,17 @@ export default function SatellitePoints({
       }
 
       colors[offset] = color.r;
+
       colors[offset + 1] = color.g;
+
       colors[offset + 2] = color.b;
 
-      pushTrail(satellite.norad_id, {
-        latitude: satellite.latitude,
-        longitude: satellite.longitude,
-        altitude_km: satellite.altitude_km,
-      });
+      pushTrail(satellite.norad_id, currentPosition);
     });
 
     animatedSatellites.current = nextAnimated;
 
-    geometryRef.current?.dispose();
+    const oldGeometry = geometryRef.current;
 
     const geometry = new THREE.BufferGeometry();
 
@@ -260,11 +389,24 @@ export default function SatellitePoints({
     points.geometry = geometry;
 
     geometryRef.current = geometry;
-  }, [globeRef, satellites, satelliteData, highlightedIds, selectedNorad]);
 
-  //
-  // Animation.
-  //
+    if (oldGeometry && oldGeometry !== geometry) {
+      oldGeometry.dispose();
+    }
+  }, [
+    globeRef,
+    satellites,
+    satelliteData,
+    highlightedIds,
+    selectedNorad,
+    predictionVersion,
+  ]);
+
+  /*
+
+Animate satellites and sample the exact same
+animated positions into the rolling trails.
+*/
   useEffect(() => {
     const globe = globeRef.current;
     const points = pointsRef.current;
@@ -275,20 +417,32 @@ export default function SatellitePoints({
 
     const animator = new SatelliteAnimator((noradId, position) => {
       positionsRef.current.set(noradId, position);
-
-      pushTrail(noradId, position);
     });
 
     let lastTime = performance.now();
 
+    let trailAccumulator = 0;
+
     let frame = 0;
 
     const tick = (now: number) => {
-      const deltaSeconds = (now - lastTime) / 1000;
+      const deltaSeconds = Math.min((now - lastTime) / 1000, 1);
 
       lastTime = now;
 
       animator.update(animatedSatellites.current, deltaSeconds);
+
+      trailAccumulator += deltaSeconds;
+
+      if (trailAccumulator >= 0.2) {
+        positionsRef.current.forEach(
+          (position: AnimatedSatellitePosition, noradId: number) => {
+            pushTrail(noradId, position);
+          },
+        );
+
+        trailAccumulator %= 0.2;
+      }
 
       const positionAttribute = points.geometry.getAttribute(
         "position",
@@ -306,13 +460,15 @@ export default function SatellitePoints({
         const coords = globe.getCoords(
           position.latitude,
           position.longitude,
-          position.altitude_km / 6378.137,
+          altitudeToGlobeUnits(position.altitude_km),
         );
 
         const offset = index * 3;
 
         positionArray[offset] = coords.x;
+
         positionArray[offset + 1] = coords.y;
+
         positionArray[offset + 2] = coords.z;
       });
 
@@ -328,6 +484,10 @@ export default function SatellitePoints({
     };
   }, [globeRef, satellites]);
 
+  /*
+
+Satellite selection.
+*/
   useEffect(() => {
     const globe = globeRef.current;
     const points = pointsRef.current;
@@ -353,9 +513,13 @@ export default function SatellitePoints({
     const handlePointerDown = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
 
+      if (rect.width === 0 || rect.height === 0) {
+        return;
+      }
+
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
 
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.y = -(((event.clientY - rect.top) / rect.height) * 2) + 1;
 
       raycaster.setFromCamera(mouse, globe.camera());
 
@@ -387,8 +551,5 @@ export default function SatellitePoints({
     };
   }, [globeRef, onSelect]);
 
-  //
-  // Keep the component mounted for the Three.js layer.
-  //
   return null;
 }

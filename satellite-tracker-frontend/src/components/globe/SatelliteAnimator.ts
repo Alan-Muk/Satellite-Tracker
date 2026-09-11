@@ -1,121 +1,109 @@
-export interface OrbitPoint {
+export interface AnimatedSatellitePosition {
   latitude: number;
-
   longitude: number;
-
   altitude_km: number;
 }
 
 export interface AnimatedSatellite {
   norad_id: number;
-
-  prediction: OrbitPoint[];
-
+  prediction: AnimatedSatellitePosition[];
   step_seconds: number;
-
   elapsed_seconds: number;
-}
-
-export interface AnimatedSatellitePosition {
-  latitude: number;
-
-  longitude: number;
-
-  altitude_km: number;
 }
 
 export type SatellitePositionUpdater = (
   noradId: number,
-
   position: AnimatedSatellitePosition,
 ) => void;
 
-function randomRange(
-  min: number,
-
-  max: number,
-) {
-  return Math.random() * (max - min) + min;
+function interpolate(a: number, b: number, amount: number): number {
+  return a + (b - a) * amount;
 }
 
-function normalizeLongitude(longitude: number) {
-  let value = longitude % 360;
+function interpolateLongitude(a: number, b: number, amount: number): number {
+  let delta = b - a;
 
-  if (value > 180) {
-    value -= 360;
+  if (delta > 180) {
+    delta -= 360;
+  } else if (delta < -180) {
+    delta += 360;
   }
 
-  if (value < -180) {
-    value += 360;
-  }
-
-  return value;
+  return ((((a + delta * amount + 180) % 360) + 360) % 360) - 180;
 }
 
-export function generateOrbit(
-  altitude_km: number,
+function interpolatePosition(
+  current: AnimatedSatellitePosition,
+  next: AnimatedSatellitePosition,
+  fraction: number,
+): AnimatedSatellitePosition {
+  return {
+    latitude: interpolate(current.latitude, next.latitude, fraction),
 
-  inclination = 45,
+    longitude: interpolateLongitude(
+      current.longitude,
+      next.longitude,
+      fraction,
+    ),
 
-  points = 360,
-
-  phase = 0,
-): OrbitPoint[] {
-  const orbit: OrbitPoint[] = [];
-
-  const eccentricity = altitude_km > 15000 ? 0.35 : 0.05;
-
-  for (let i = 0; i < points; i++) {
-    const angle = (i / points) * Math.PI * 2 + phase;
-
-    const orbitalRadius = altitude_km * (1 + Math.sin(angle) * eccentricity);
-
-    const latitude = Math.sin(angle) * inclination;
-
-    const longitude = normalizeLongitude(
-      (angle * 180) / Math.PI + randomRange(-180, 180),
-    );
-
-    orbit.push({
-      latitude,
-
-      longitude,
-
-      altitude_km: orbitalRadius,
-    });
-  }
-
-  return orbit;
+    altitude_km: interpolate(current.altitude_km, next.altitude_km, fraction),
+  };
 }
 
 export function createAnimatedSatellite(
   norad_id: number,
-
-  altitude_km: number,
-
-  step_seconds = 10,
+  prediction: AnimatedSatellitePosition[],
+  step_seconds: number,
+  elapsed_seconds = 0,
 ): AnimatedSatellite {
-  const minimumStep = Math.min(5, step_seconds);
-
-  const maximumStep = Math.max(minimumStep, step_seconds);
-
   return {
     norad_id,
-
-    prediction: generateOrbit(
-      altitude_km,
-
-      randomRange(20, 100),
-
-      360,
-
-      Math.random() * Math.PI * 2,
-    ),
-
-    step_seconds: randomRange(minimumStep, maximumStep),
-
-    elapsed_seconds: Math.random() * 3600,
+    prediction,
+    step_seconds,
+    elapsed_seconds,
   };
+}
+
+/**
+ * Calculate where the animation should currently
+ * be inside a backend-generated prediction.
+ *
+ * The backend prediction starts at `generated_at`.
+ * Therefore:
+ *
+ *   elapsed = now - generated_at
+ *
+ * This prevents the frontend from restarting the
+ * satellite at prediction point zero.
+ */
+export function elapsedSincePrediction(
+  generatedAt: string,
+  stepSeconds: number,
+  pointCount: number,
+): number {
+  if (stepSeconds <= 0 || pointCount < 2) {
+    return 0;
+  }
+
+  const generatedTime = Date.parse(generatedAt);
+
+  if (!Number.isFinite(generatedTime)) {
+    return 0;
+  }
+
+  const elapsedSeconds = (Date.now() - generatedTime) / 1000;
+
+  const duration = (pointCount - 1) * stepSeconds;
+
+  if (duration <= 0) {
+    return 0;
+  }
+
+  /*
+   * The prediction is finite, so wrap into
+   * its available time range.
+   */
+  return ((elapsedSeconds % duration) + duration) % duration;
 }
 
 export class SatelliteAnimator {
@@ -125,11 +113,11 @@ export class SatelliteAnimator {
     this.updatePosition = updatePosition;
   }
 
-  update(
-    satellites: AnimatedSatellite[],
+  update(satellites: AnimatedSatellite[], deltaSeconds: number): void {
+    if (deltaSeconds <= 0) {
+      return;
+    }
 
-    deltaSeconds: number,
-  ) {
     for (const satellite of satellites) {
       const points = satellite.prediction;
 
@@ -143,7 +131,11 @@ export class SatelliteAnimator {
 
       satellite.elapsed_seconds += deltaSeconds;
 
-      const duration = points.length * satellite.step_seconds;
+      const duration = (points.length - 1) * satellite.step_seconds;
+
+      if (duration <= 0) {
+        continue;
+      }
 
       satellite.elapsed_seconds %= duration;
 
@@ -153,75 +145,16 @@ export class SatelliteAnimator {
 
       const fraction = exactIndex - index;
 
-      const current = points[index % points.length];
+      const current = points[index];
+      const next = points[index + 1];
 
-      const next = points[(index + 1) % points.length];
+      if (!current || !next) {
+        continue;
+      }
 
-      const latitude = this.interpolate(
-        current.latitude,
+      const position = interpolatePosition(current, next, fraction);
 
-        next.latitude,
-
-        fraction,
-      );
-
-      const longitude = this.interpolateLongitude(
-        current.longitude,
-
-        next.longitude,
-
-        fraction,
-      );
-
-      const altitude = this.interpolate(
-        current.altitude_km,
-
-        next.altitude_km,
-
-        fraction,
-      );
-
-      this.updatePosition(
-        satellite.norad_id,
-
-        {
-          latitude,
-
-          longitude,
-
-          altitude_km: altitude,
-        },
-      );
+      this.updatePosition(satellite.norad_id, position);
     }
-  }
-
-  private interpolate(
-    a: number,
-
-    b: number,
-
-    amount: number,
-  ) {
-    return a + (b - a) * amount;
-  }
-
-  private interpolateLongitude(
-    a: number,
-
-    b: number,
-
-    amount: number,
-  ) {
-    let difference = b - a;
-
-    if (difference > 180) {
-      difference -= 360;
-    }
-
-    if (difference < -180) {
-      difference += 360;
-    }
-
-    return normalizeLongitude(a + difference * amount);
   }
 }

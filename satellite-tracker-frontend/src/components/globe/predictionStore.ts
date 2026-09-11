@@ -5,16 +5,12 @@ const predictions = new Map<number, OrbitPrediction>();
 const listeners = new Set<() => void>();
 
 export function setPrediction(prediction: OrbitPrediction) {
-  predictions.set(
-    prediction.norad_id,
-
-    prediction,
-  );
+  predictions.set(prediction.norad_id, prediction);
 
   listeners.forEach((listener) => listener());
 }
 
-export function getPrediction(noradId: number) {
+export function getPrediction(noradId: number): OrbitPrediction | undefined {
   return predictions.get(noradId);
 }
 
@@ -24,4 +20,16 @@ export function subscribePrediction(listener: () => void) {
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function clearPrediction(noradId: number) {
+  predictions.delete(noradId);
+
+  listeners.forEach((listener) => listener());
+}
+
+export function clearPredictions() {
+  predictions.clear();
+
+  listeners.forEach((listener) => listener());
 }

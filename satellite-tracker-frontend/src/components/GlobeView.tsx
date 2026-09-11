@@ -23,16 +23,6 @@ interface Props {
   onRegionSelect: (region: OrbitRegion | "ALL") => void;
 }
 
-interface GlobeSatellitePoint {
-  norad_id: number;
-  name: string;
-  lat: number;
-  lng: number;
-  altitude: number;
-  color: string;
-  size: number;
-}
-
 function GlobeView({
   position,
   satellites,
@@ -45,7 +35,7 @@ function GlobeView({
 }: Props) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
 
-  const [satellitePoints] = useState<GlobeSatellitePoint[]>([]);
+  const [globeReady, setGlobeReady] = useState(false);
 
   return (
     <>
@@ -53,36 +43,30 @@ function GlobeView({
         ref={globeRef}
         width={window.innerWidth}
         height={window.innerHeight}
-        backgroundColor="#000000"
+        backgroundColor="#02040a"
         showAtmosphere
         atmosphereColor="#4da6ff"
         atmosphereAltitude={0.15}
         animateIn={false}
-        enablePointerInteraction
-
-        pointsData={satellitePoints}
-        pointLat="lat"
-        pointLng="lng"
-        pointAltitude="altitude"
-        pointColor="color"
-        pointRadius={(point) => (point as GlobeSatellitePoint).size}
-        pointLabel={(point) => (point as GlobeSatellitePoint).name}
-        onPointClick={(point) => {
-          onSelect((point as GlobeSatellitePoint).norad_id);
+        enablePointerInteraction={false}
+        onGlobeReady={() => {
+          setGlobeReady(true);
         }}
       />
 
-      <GlobeLayers
-        globeRef={globeRef}
-        position={position}
-        satellites={satellites}
-        satelliteData={satelliteData}
-        highlightedIds={highlightedIds}
-        selectedNorad={selectedNorad}
-        selectedRegion={selectedRegion}
-        onSelect={onSelect}
-        onRegionSelect={onRegionSelect}
-      />
+      {globeReady && (
+        <GlobeLayers
+          globeRef={globeRef}
+          position={position}
+          satellites={satellites}
+          satelliteData={satelliteData}
+          highlightedIds={highlightedIds}
+          selectedNorad={selectedNorad}
+          selectedRegion={selectedRegion}
+          onSelect={onSelect}
+          onRegionSelect={onRegionSelect}
+        />
+      )}
     </>
   );
 }

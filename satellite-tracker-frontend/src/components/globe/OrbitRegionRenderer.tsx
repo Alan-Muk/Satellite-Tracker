@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import type { GlobeMethods } from "react-globe.gl";
 import * as THREE from "three";
 
-import { VISUAL_ALTITUDE_SCALE } from "./rendering";
+import { altitudeToGlobeUnits } from "./rendering";
 
 import type { OrbitRegion } from "../../api";
 
@@ -21,25 +21,21 @@ export const regions: Region[] = [
     altitudeKm: 150,
     color: "#00ffff",
   },
-
   {
     name: "LEO",
     altitudeKm: 800,
     color: "#00aaff",
   },
-
   {
     name: "MEO",
     altitudeKm: 10000,
     color: "#bb55ff",
   },
-
   {
     name: "GEO",
     altitudeKm: 35786,
     color: "#ffaa00",
   },
-
   {
     name: "HEO",
     altitudeKm: 20000,
@@ -53,13 +49,24 @@ interface Props {
   selectedRegion: OrbitRegion | "ALL";
 }
 
-const EARTH_RADIUS_KM = 6378.137;
+function getShellOpacity(
+  region: OrbitRegion,
+  selectedRegion: OrbitRegion | "ALL",
+) {
+  if (selectedRegion === region) {
+    return 0.95;
+  }
+
+  return 0.18;
+}
 
 export default function OrbitRegionRenderer({
   globeRef,
-
   selectedRegion,
 }: Props) {
+  //
+  // Create orbit shells.
+  //
   useEffect(() => {
     const globe = globeRef.current;
 
@@ -69,27 +76,28 @@ export default function OrbitRegionRenderer({
 
     const scene = globe.scene();
 
-    const globeRadius = globe.getGlobeRadius();
-
     const shells: THREE.LineSegments[] = [];
 
     for (const region of regions) {
       const radius =
-        globeRadius *
-        (1 + (region.altitudeKm / EARTH_RADIUS_KM) * VISUAL_ALTITUDE_SCALE);
+        globe.getGlobeRadius() * (1 + altitudeToGlobeUnits(region.altitudeKm));
 
       const sphere = new THREE.SphereGeometry(radius, 64, 32);
 
       const geometry = new THREE.WireframeGeometry(sphere);
+
+      sphere.dispose();
 
       const material = new THREE.LineBasicMaterial({
         color: new THREE.Color(region.color),
 
         transparent: true,
 
-        opacity: selectedRegion === region.name ? 0.95 : 0.18,
+        opacity: getShellOpacity(region.name, selectedRegion),
 
         depthWrite: false,
+
+        depthTest: true,
       });
 
       const shell = new THREE.LineSegments(geometry, material);
@@ -98,11 +106,11 @@ export default function OrbitRegionRenderer({
 
       shell.userData.region = region.name;
 
+      shell.renderOrder = 20;
+
       scene.add(shell);
 
       shells.push(shell);
-
-      sphere.dispose();
     }
 
     return () => {
@@ -114,7 +122,9 @@ export default function OrbitRegionRenderer({
         const material = shell.material;
 
         if (Array.isArray(material)) {
-          material.forEach((item) => item.dispose());
+          for (const item of material) {
+            item.dispose();
+          }
         } else {
           material.dispose();
         }
@@ -122,6 +132,9 @@ export default function OrbitRegionRenderer({
     };
   }, [globeRef]);
 
+  //
+  // Update shell highlighting.
+  //
   useEffect(() => {
     const globe = globeRef.current;
 
@@ -141,7 +154,7 @@ export default function OrbitRegionRenderer({
 
       const material = shell.material as THREE.LineBasicMaterial;
 
-      material.opacity = selectedRegion === region.name ? 0.95 : 0.18;
+      material.opacity = getShellOpacity(region.name, selectedRegion);
     }
   }, [globeRef, selectedRegion]);
 

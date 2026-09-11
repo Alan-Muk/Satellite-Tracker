@@ -6,7 +6,6 @@ import OrbitRegions from "./OrbitRegions";
 import SatellitePoints from "./SatellitePoints";
 import SatelliteTrail from "./SatelliteTrail";
 import SelectedSatellite from "./SelectedSatellite";
-import SelectedOrbitPrediction from "./SelectedOrbitPrediction";
 
 import type { Satellite, SatellitePosition, OrbitRegion } from "../../api";
 
@@ -38,8 +37,8 @@ export default function GlobeLayers({
   highlightedIds,
   selectedNorad,
   selectedRegion,
-  onRegionSelect,
   onSelect,
+  onRegionSelect,
 }: Props) {
   return (
     <>
@@ -61,10 +60,6 @@ export default function GlobeLayers({
         selectedNorad={selectedNorad}
         onSelect={onSelect}
       />
-
-      {selectedNorad !== null && (
-        <SelectedOrbitPrediction globeRef={globeRef} noradId={selectedNorad} />
-      )}
 
       {selectedNorad !== null && position && (
         <SelectedSatellite globeRef={globeRef} position={position} />

@@ -1,25 +1,136 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { GlobeMethods } from "react-globe.gl";
 import * as THREE from "three";
 
 import type { Satellite } from "../../api";
+import { altitudeToGlobeUnits } from "./rendering";
 
-import { trails, fullOrbitTrails } from "./satelliteTrails";
+import {
+  getTrailPoints,
+  syncTrails,
+  trails,
+  fullOrbitTrails,
+  type TrailBuffer,
+} from "./satelliteTrails";
+
 import { getTrailColor } from "./satelliteColors";
 
 interface Props {
   globeRef: MutableRefObject<GlobeMethods | undefined>;
+
   satelliteData: Satellite[];
 }
 
-const EARTH_RADIUS_KM = 6378.137;
+interface TrailRenderer {
+  line: THREE.Line;
 
-function altitudeToGlobeUnits(altitudeKm: number) {
-  return altitudeKm / EARTH_RADIUS_KM;
+  geometry: THREE.BufferGeometry;
+
+  positionAttribute: THREE.BufferAttribute;
+
+  material: THREE.LineBasicMaterial;
+
+  capacity: number;
+}
+
+const UPDATE_INTERVAL_MS = 200;
+
+function disposeTrailRenderer(renderer: TrailRenderer) {
+  renderer.geometry.dispose();
+
+  renderer.material.dispose();
+}
+
+function createTrailRenderer(
+  satellite: Satellite | undefined,
+  capacity: number,
+  fullOrbit: boolean,
+): TrailRenderer {
+  const positions = new Float32Array(capacity * 3);
+
+  const geometry = new THREE.BufferGeometry();
+
+  const positionAttribute = new THREE.BufferAttribute(positions, 3);
+
+  geometry.setAttribute("position", positionAttribute);
+
+  geometry.setDrawRange(0, 0);
+
+  const material = new THREE.LineBasicMaterial({
+    color: satellite ? getTrailColor(satellite) : "#668899",
+
+    transparent: true,
+
+    opacity: fullOrbit ? 0.65 : 0.45,
+
+    depthWrite: false,
+
+    depthTest: true,
+  });
+
+  const line = new THREE.Line(geometry, material);
+
+  /*
+
+The trail positions change continuously,
+so don't make Three.js recalculate a
+bounding sphere every update.
+*/
+  line.frustumCulled = false;
+
+  line.renderOrder = 50;
+
+  return {
+    line,
+
+    geometry,
+
+    positionAttribute,
+
+    material,
+
+    capacity,
+  };
+}
+
+function updateTrailRenderer(
+  globe: GlobeMethods,
+  renderer: TrailRenderer,
+  trail: TrailBuffer,
+) {
+  const points = getTrailPoints(trail);
+
+  const count = Math.min(points.length, renderer.capacity);
+
+  const positions = renderer.positionAttribute.array as Float32Array;
+
+  for (let i = 0; i < count; i++) {
+    const point = points[i];
+
+    const coords = globe.getCoords(
+      point.latitude,
+      point.longitude,
+      altitudeToGlobeUnits(point.altitude_km),
+    );
+
+    const offset = i * 3;
+
+    positions[offset] = coords.x;
+
+    positions[offset + 1] = coords.y;
+
+    positions[offset + 2] = coords.z;
+  }
+
+  renderer.positionAttribute.needsUpdate = true;
+
+  renderer.geometry.setDrawRange(0, count);
 }
 
 export default function SatelliteTrail({ globeRef, satelliteData }: Props) {
+  const renderersRef = useRef<Map<number, TrailRenderer>>(new Map());
+
   useEffect(() => {
     const globe = globeRef.current;
 
@@ -41,116 +152,100 @@ export default function SatelliteTrail({ globeRef, satelliteData }: Props) {
       satelliteData.map((satellite) => [satellite.norad_id, satellite]),
     );
 
-    const rebuildTrails = () => {
-      //
-      // Remove old line objects.
-      //
-      while (trailGroup.children.length > 0) {
-        const child = trailGroup.children[0];
+    const activeNoradIds = satelliteData.map((satellite) => satellite.norad_id);
 
-        trailGroup.remove(child);
+    const ensureRenderer = (noradId: number, trail: TrailBuffer) => {
+      const existing = renderersRef.current.get(noradId);
 
-        if (child instanceof THREE.Line) {
-          child.geometry.dispose();
+      const fullOrbit = fullOrbitTrails.has(noradId);
 
-          const material = child.material;
+      if (existing && existing.capacity >= trail.capacity) {
+        existing.material.opacity = fullOrbit ? 0.65 : 0.45;
 
-          if (Array.isArray(material)) {
-            material.forEach((item) => item.dispose());
-          } else {
-            material.dispose();
-          }
-        }
+        return existing;
       }
 
-      //
-      // Build current trails from the exact same
-      // trail store used by SatellitePoints.
-      //
-      trails.forEach((points, noradId) => {
-        if (points.length < 2) {
-          return;
-        }
+      if (existing) {
+        trailGroup.remove(existing.line);
 
-        const satellite = metadataMap.get(noradId);
+        disposeTrailRenderer(existing);
 
-        const color = satellite ? getTrailColor(satellite) : "#668899";
+        renderersRef.current.delete(noradId);
+      }
 
-        const fullOrbit = fullOrbitTrails.has(noradId);
+      const renderer = createTrailRenderer(
+        metadataMap.get(noradId),
+        trail.capacity,
+        fullOrbit,
+      );
 
-        const visiblePoints = fullOrbit
-          ? points
-          : points.slice(Math.max(0, points.length - 40));
+      renderer.line.name = `satellite-trail-${noradId}`;
 
-        if (visiblePoints.length < 2) {
-          return;
-        }
+      trailGroup.add(renderer.line);
 
-        const positions = new Float32Array(visiblePoints.length * 3);
+      renderersRef.current.set(noradId, renderer);
 
-        visiblePoints.forEach((point, index) => {
-          const coords = globe.getCoords(
-            point.latitude,
-            point.longitude,
-            altitudeToGlobeUnits(point.altitude_km),
-          );
-
-          const offset = index * 3;
-
-          positions[offset] = coords.x;
-          positions[offset + 1] = coords.y;
-          positions[offset + 2] = coords.z;
-        });
-
-        const geometry = new THREE.BufferGeometry();
-
-        geometry.setAttribute(
-          "position",
-          new THREE.BufferAttribute(positions, 3),
-        );
-
-        const material = new THREE.LineBasicMaterial({
-          color,
-          transparent: true,
-          opacity: fullOrbit ? 0.65 : 0.45,
-          depthWrite: false,
-          depthTest: true,
-        });
-
-        const line = new THREE.Line(geometry, material);
-
-        line.name = `satellite-trail-${noradId}`;
-
-        line.renderOrder = 50;
-
-        trailGroup.add(line);
-      });
+      return renderer;
     };
 
-    rebuildTrails();
+    const updateTrails = () => {
+      syncTrails(activeNoradIds);
 
-    const interval = window.setInterval(rebuildTrails, 100);
+      trails.forEach((trail, noradId) => {
+        if (trail.size < 2) {
+          return;
+        }
+
+        const renderer = ensureRenderer(noradId, trail);
+
+        updateTrailRenderer(globe, renderer, trail);
+      });
+
+      /*
+       * Remove renderers whose satellites
+       * are no longer active.
+       */
+      for (const [noradId, renderer] of renderersRef.current) {
+        if (!trails.has(noradId)) {
+          trailGroup.remove(renderer.line);
+
+          disposeTrailRenderer(renderer);
+
+          renderersRef.current.delete(noradId);
+        }
+      }
+    };
+
+    /*
+     * Render whatever trail data already
+     * exists.
+     */
+    updateTrails();
+
+    /*
+     * Trails intentionally update at a much
+     * lower rate than the satellite positions.
+     *
+     * Satellite motion:
+     *     requestAnimationFrame
+     *
+     * Trail geometry:
+     *     every 200 ms
+     *
+     * This keeps the main animation smooth.
+     */
+    const interval = window.setInterval(updateTrails, UPDATE_INTERVAL_MS);
 
     return () => {
       window.clearInterval(interval);
 
-      while (trailGroup.children.length > 0) {
-        const child = trailGroup.children[0];
+      for (const renderer of renderersRef.current.values()) {
+        trailGroup.remove(renderer.line);
 
-        trailGroup.remove(child);
-
-        if (child instanceof THREE.Line) {
-          child.geometry.dispose();
-
-          const material = child.material;
-
-          if (Array.isArray(material)) {
-            material.forEach((item) => item.dispose());
-          } else {
-            material.dispose();
-          }
-        }
+        disposeTrailRenderer(renderer);
       }
+
+      renderersRef.current.clear();
 
       scene.remove(trailGroup);
     };

@@ -26,12 +26,21 @@ export default function OrbitRegions({
     globeRef,
   });
 
+  //
+  // Move the camera when a specific
+  // orbit region is selected.
+  //
   useEffect(() => {
-    if (selectedRegion !== "ALL") {
-      flyToRegion(selectedRegion);
+    if (selectedRegion === "ALL") {
+      return;
     }
+
+    flyToRegion(selectedRegion);
   }, [selectedRegion, flyToRegion]);
 
+  //
+  // Install region picking.
+  //
   useEffect(() => {
     const globe = globeRef.current;
 
@@ -39,13 +48,13 @@ export default function OrbitRegions({
       return;
     }
 
+    const canvas = globe.renderer().domElement;
+
     const cleanup = createOrbitRegionPicker({
       scene: globe.scene(),
       camera: globe.camera(),
-      canvas: globe.renderer().domElement,
-      onSelect: (region) => {
-        onSelectRegion(region);
-      },
+      canvas,
+      onSelect: onSelectRegion,
     });
 
     return cleanup;

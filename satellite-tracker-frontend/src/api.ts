@@ -60,7 +60,7 @@ export interface OrbitPrediction {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
-export async function getSatellites(limit = 500): Promise<Satellite[]> {
+export async function getSatellites(limit = 1000): Promise<Satellite[]> {
   const params = new URLSearchParams();
 
   params.set("limit", limit.toString());
@@ -84,8 +84,13 @@ export async function getPosition(noradId: number): Promise<SatellitePosition> {
   return response.json();
 }
 
-export async function getPrediction(noradId: number): Promise<OrbitPrediction> {
-  const response = await fetch(`${API_BASE}/satellites/${noradId}/prediction`);
+export async function getPrediction(
+  noradId: number,
+  signal?: AbortSignal,
+): Promise<OrbitPrediction> {
+  const response = await fetch(`${API_BASE}/satellites/${noradId}/prediction`, {
+    signal,
+  });
 
   if (!response.ok) {
     throw new Error("Failed to fetch satellite prediction");

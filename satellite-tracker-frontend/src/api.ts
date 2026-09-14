@@ -66,6 +66,21 @@ export async function getPosition(noradId: number): Promise<SatellitePosition> {
   return response.json();
 }
 
+export async function getPositions(
+  ids: number[],
+): Promise<SatellitePosition[]> {
+  if (ids.length === 0) return [];
+
+  const params = new URLSearchParams();
+  params.set("ids", ids.join(","));
+
+  const response = await fetch(`${API_BASE}/satellites/positions?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch satellite positions: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function getPrediction(
   noradId: number,
   signal?: AbortSignal,

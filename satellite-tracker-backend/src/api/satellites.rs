@@ -3,7 +3,9 @@ use axum::{
     extract::{Path, Query, State},
 };
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use std::collections::HashMap;
 
@@ -12,9 +14,11 @@ use crate::{
     error::AppError,
     orbit::{
         metadata::OrbitMetadata, position::SatellitePosition, predictor::generate_prediction,
-        propagator::propagate, region::OrbitRegion, trajectory::OrbitPrediction,
+        propagator::propagate, propagator::propagate_at, region::OrbitRegion,
+        trajectory::OrbitPrediction,
     },
     satellite::group::SatelliteGroup,
+    satellite::model::Satellite,
     state::AppState,
 };
 
@@ -36,7 +40,7 @@ pub struct SatelliteFilter {
     pub limit: Option<usize>,
 }
 
-const DEFAULT_LIMIT: usize = 500;
+const DEFAULT_LIMIT: usize = 2000;
 const MAX_LIMIT: usize = 5000;
 
 pub async fn list_satellites(
@@ -95,6 +99,67 @@ pub async fn get_satellite_position(
     Ok(Json(position))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PositionsQuery {
+    /// Comma-separated list of NORAD IDs.
+    pub ids: String,
+}
+
+pub const MAX_IDS_PER_REQUEST: usize = 5000;
+
+pub async fn get_satellite_positions(
+    State(state): State<AppState>,
+    Query(params): Query<PositionsQuery>,
+) -> Result<Json<Vec<SatellitePosition>>, AppError> {
+    let ids: Vec<u32> = params
+        .ids
+        .split(',')
+        .filter_map(|s| s.trim().parse::<u32>().ok())
+        .collect();
+
+    if ids.is_empty() {
+        return Err(AppError::BadRequest("ids parameter is empty".into()));
+    }
+
+    if ids.len() > MAX_IDS_PER_REQUEST {
+        return Err(AppError::BadRequest(format!(
+            "too many ids: {} (max {})",
+            ids.len(),
+            MAX_IDS_PER_REQUEST
+        )));
+    }
+
+    // Look up all satellites under a single read lock, then drop it.
+    let satellites: Vec<Arc<Satellite>> = {
+        let manager = state.manager.read().await;
+        ids.iter().filter_map(|id| manager.get(*id)).collect()
+    };
+
+    // Compute all positions at the same instant so the frame is time-coherent.
+    let now = Utc::now();
+
+    let mut positions = Vec::with_capacity(satellites.len());
+    for satellite in &satellites {
+        match propagate_at(
+            satellite.norad_id,
+            &satellite.elements,
+            &satellite.constants,
+            now,
+        ) {
+            Ok(position) => positions.push(position),
+            Err(err) => {
+                tracing::warn!(
+                    norad_id = satellite.norad_id,
+                    error = %err,
+                    "propagation failed in batch position request"
+                );
+            }
+        }
+    }
+
+    Ok(Json(positions))
+}
+
 pub async fn get_satellite_prediction(
     State(state): State<AppState>,
     Path(norad_id): Path<u32>,
@@ -121,6 +186,28 @@ pub async fn get_satellite_orbits(
     Json(state.stats.by_region.clone())
 }
 
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn parses_ids_from_query() {
+        // Test the parsing logic in isolation
+        let ids: Vec<u32> = "25544,44714,900"
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u32>().ok())
+            .collect();
+        assert_eq!(ids, vec![25544, 44714, 900]);
+    }
+
+    #[test]
+    fn skips_invalid_ids() {
+        let ids: Vec<u32> = "25544,abc,,900"
+            .split(',')
+            .filter_map(|s| s.trim().parse::<u32>().ok())
+            .collect();
+        assert_eq!(ids, vec![25544, 900]);
+    }
+}
 /*
  * HTTP handlers for the satellite API.
  *

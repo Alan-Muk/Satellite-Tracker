@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { getPosition } from "../api";
+import { getPosition, getPositions } from "../api";
 import type { Satellite, SatellitePosition } from "../api";
 
 interface Props {
@@ -25,28 +25,16 @@ export function useSatellitePositions({ satellites, selectedNorad }: Props) {
     }
 
     async function loadPositions() {
-      const results = await Promise.allSettled(
-        satellites.map((s) => getPosition(s.norad_id)),
-      );
-
-      if (cancelled) return;
-
-      const positions: SatellitePosition[] = [];
-      results.forEach((result, i) => {
-        if (result.status === "fulfilled") positions.push(result.value);
-        else
-          console.warn(
-            `Failed to load position for ${satellites[i].norad_id}`,
-            result.reason,
-          );
-      });
-
-      setVisiblePositions(positions);
+      try {
+        const ids = satellites.map((s) => s.norad_id);
+        const positions = await getPositions(ids);
+        if (!cancelled) setVisiblePositions(positions);
+      } catch (error) {
+        if (!cancelled) console.error("Failed to load positions", error);
+      }
     }
 
-    loadPositions().catch((error) => {
-      if (!cancelled) console.error("Failed to load positions", error);
-    });
+    loadPositions();
 
     return () => {
       cancelled = true;

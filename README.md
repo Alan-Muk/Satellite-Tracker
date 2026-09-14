@@ -4,19 +4,19 @@
 ![Axum](https://img.shields.io/badge/Axum-Web_Server-000000)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
-![Three.js](https://img.shields.io/badge/Three.js-3D_Renderer-000000?logo=three.js)
+![Three.js](https://img.shields.io/badge/Three.js-3D_Renderer-000000&logo=threedotjs)
 ![Tokio](https://img.shields.io/badge/Tokio-Async_Runtime-000000)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-A full-stack satellite visualization platform that downloads, parses, classifies and renders thousands of active Earth-orbiting satellites in real time.
+A full-stack satellite visualization platform that downloads, parses, classifies and renders thousands of active Earth-orbiting satellites.
 
-The application combines a high-performance asynchronous Rust backend with a React + Cesium frontend to provide an interactive 3D globe capable of displaying orbital motion, constellation classification, orbit prediction and real-time satellite visualization.
+The application combines an asynchronous Rust backend with a React + Three.js frontend to provide an interactive 3D globe capable of displaying orbital motion, constellation classification, orbit prediction and live satellite positions.
 
 ---
 
 # Overview
 
-The system is designed around the complete satellite data lifecycle.
+The system covers the full satellite data lifecycle, from ingestion to rendering.
 
 ```text
                 CelesTrak
@@ -34,7 +34,7 @@ The system is designed around the complete satellite data lifecycle.
                     │
                     ▼
 
-             TLE Parser Engine
+          TLE Parser (SGP4)
 
                     │
                     ▼
@@ -44,11 +44,18 @@ The system is designed around the complete satellite data lifecycle.
                     │
                     ▼
 
-          Satellite Manager (Rust)
+       Satellite Manager (Rust)
 
                     │
-          REST API (Axum)
+          ┌─────────┴─────────┐
+          │                   │
+          ▼                   ▼
 
+    REST API              WebSocket
+   (Axum/HTTP)          (position stream)
+
+          │                   │
+          └─────────┬─────────┘
                     │
                     ▼
 
@@ -57,41 +64,47 @@ The system is designed around the complete satellite data lifecycle.
                     │
                     ▼
 
-         Cesium 3D Globe Renderer
+       Three.js Globe Renderer
 
                     │
                     ▼
 
       Interactive Satellite Tracking
-```
-
-The backend continuously maintains a catalogue of active satellites while the frontend focuses entirely on visualization, interaction and animation.
-
 ---
 
-# Motivation
+```
+The backend loads the active TLE catalogue at startup, parses each record into SGP4 elements once, and serves both REST queries and a WebSocket position stream. The frontend renders the globe and interpolates between streamed frames for smooth motion.
 
+# Motivation
 Tracking satellites involves significantly more than displaying coordinates on a globe.
 
 A complete visualization platform must address:
 
-- ingesting thousands of TLE records
-- validating orbital data
-- deriving orbital characteristics
-- organizing satellites into constellations
-- exposing a queryable API
-- rendering thousands of moving objects efficiently
-- animating orbital motion
-- visualizing orbital regions
-- supporting user interaction at scale
+ingesting thousands of TLE records
+
+validating orbital data
+
+deriving orbital characteristics
+
+organizing satellites into constellations
+
+exposing a queryable API
+
+streaming live positions
+
+rendering thousands of moving objects efficiently
+
+animating orbital motion
+
+visualizing orbital regions
+
+supporting user interaction at scale
 
 This project explores how modern systems programming and GPU-accelerated rendering can be combined to build a performant satellite visualization platform.
 
----
-
 # Architecture
-
-## High-Level Architecture
+High-Level Architecture
+```
 
 ```text
                         CelesTrak
@@ -101,11 +114,11 @@ This project explores how modern systems programming and GPU-accelerated renderi
 
                             │
 
-                Validate TLE Records
+                 Validate TLE Records
 
                             │
 
-                 Parse Orbital Elements
+              Parse Orbital Elements (once)
 
                             │
 
@@ -114,49 +127,70 @@ This project explores how modern systems programming and GPU-accelerated renderi
                             │
 
              Store in Satellite Manager
+                    (Arc<Satellite>)
 
                             │
 
-                Axum REST Endpoints
+          ┌─────────────────┴─────────────────┐
+          │                                   │
 
+    Axum REST Endpoints              WebSocket Stream
+
+          │                                   │
+          └─────────────────┬─────────────────┘
                             │
 
                React Data Fetching Hooks
 
                             │
 
-                 Cesium Scene Graph
+                Three.js Scene Layers
 
                             │
 
            Animated Satellite Rendering
+---
 ```
 
----
-
 # Backend
-
 The backend is entirely written in Rust.
 
 Responsibilities include:
 
-- downloading active TLE catalogues
-- validating downloaded data
-- maintaining an offline cache
-- parsing orbital elements
-- generating derived orbital metadata
-- satellite classification
-- REST API
-- prediction generation
-- orbital position calculation
+downloading active TLE catalogues
+
+validating downloaded data
+
+maintaining an offline cache
+
+parsing orbital elements into SGP4 representations
+
+generating derived orbital metadata
+
+satellite classification
+
+REST API
+
+WebSocket position streaming
+
+prediction generation
+
+orbital position calculation
 
 The backend separates responsibilities into dedicated modules, allowing each subsystem to evolve independently.
 
----
+Notable design points:
+
+TLEs are parsed into sgp4::Elements and sgp4::Constants once at startup and stored alongside each satellite, so propagation is a pure computation with no per-request parsing.
+
+Satellites are stored as Arc<Satellite> inside the manager, so lookups and catalogue iterations are pointer copies rather than deep clones.
+
+The manager's write lock is only held at startup; request handlers take short read locks to clone out Arc<Satellite> handles and then drop the lock before doing SGP4 propagation.
+
+Group and region histograms are computed once and cached in CatalogStats.
 
 # TLE Download Pipeline
-
-The backend downloads the current active satellite catalogue directly from CelesTrak.
+The backend downloads the current active satellite catalogue from CelesTrak at startup.
 
 Workflow:
 
@@ -183,7 +217,7 @@ Save Local Cache
 
       ▼
 
-Parse Records
+Parse Records (SGP4)
 
       │
 
@@ -192,7 +226,11 @@ Parse Records
 Insert Into Manager
 ```
 
-If downloading fails, the application automatically falls back to the cached catalogue, allowing the system to continue operating without network access.
+If the download fails, the application falls back to the cached catalogue. If both are unavailable, startup fails with a clear error rather than running with an empty catalogue.
+
+CelesTrak may respond with a "catalog has not updated" message when the file is unchanged; this is handled as a normal cache-reuse path rather than an error.
+
+
 
 ---
 

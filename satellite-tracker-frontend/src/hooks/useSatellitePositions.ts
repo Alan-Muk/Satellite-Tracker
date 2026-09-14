@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { getPosition } from "../api";
-
 import type { Satellite, SatellitePosition } from "../api";
 
 interface Props {
   satellites: Satellite[];
-
   selectedNorad: number | null;
 }
 
@@ -14,55 +12,48 @@ export function useSatellitePositions({ satellites, selectedNorad }: Props) {
   const [visiblePositions, setVisiblePositions] = useState<SatellitePosition[]>(
     [],
   );
-
   const [position, setPosition] = useState<SatellitePosition | null>(null);
 
-  //
-  // Load the current position of every
-  // visible satellite.
-  //
+  const satelliteIdKey = satellites.map((s) => s.norad_id).join(",");
+
   useEffect(() => {
     let cancelled = false;
-
-    async function loadPositions() {
-      const results = await Promise.allSettled(
-        satellites.map((satellite) => getPosition(satellite.norad_id)),
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      const positions = results
-        .filter(
-          (result): result is PromiseFulfilledResult<SatellitePosition> =>
-            result.status === "fulfilled",
-        )
-        .map((result) => result.value);
-
-      setVisiblePositions(positions);
-    }
 
     if (satellites.length === 0) {
       setVisiblePositions([]);
       return;
     }
 
+    async function loadPositions() {
+      const results = await Promise.allSettled(
+        satellites.map((s) => getPosition(s.norad_id)),
+      );
+
+      if (cancelled) return;
+
+      const positions: SatellitePosition[] = [];
+      results.forEach((result, i) => {
+        if (result.status === "fulfilled") positions.push(result.value);
+        else
+          console.warn(
+            `Failed to load position for ${satellites[i].norad_id}`,
+            result.reason,
+          );
+      });
+
+      setVisiblePositions(positions);
+    }
+
     loadPositions().catch((error) => {
-      if (!cancelled) {
-        console.error(error);
-      }
+      if (!cancelled) console.error("Failed to load positions", error);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [satellites]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [satelliteIdKey]);
 
-  //
-  // Keep the selected satellite's
-  // telemetry current.
-  //
   useEffect(() => {
     if (selectedNorad === null) {
       setPosition(null);
@@ -70,28 +61,20 @@ export function useSatellitePositions({ satellites, selectedNorad }: Props) {
     }
 
     let cancelled = false;
-
     const noradId = selectedNorad;
 
     async function load() {
-      const data = await getPosition(noradId);
-
-      setPosition(data);
+      try {
+        const data = await getPosition(noradId);
+        if (!cancelled) setPosition(data);
+      } catch (error) {
+        if (!cancelled)
+          console.error(`Failed to load position for ${noradId}`, error);
+      }
     }
 
-    load().catch((error) => {
-      if (!cancelled) {
-        console.error(error);
-      }
-    });
-
-    const timer = window.setInterval(() => {
-      load().catch((error) => {
-        if (!cancelled) {
-          console.error(error);
-        }
-      });
-    }, 5000);
+    load();
+    const timer = window.setInterval(load, 5000);
 
     return () => {
       cancelled = true;
@@ -99,8 +82,5 @@ export function useSatellitePositions({ satellites, selectedNorad }: Props) {
     };
   }, [selectedNorad]);
 
-  return {
-    visiblePositions,
-    position,
-  };
+  return { visiblePositions, position };
 }

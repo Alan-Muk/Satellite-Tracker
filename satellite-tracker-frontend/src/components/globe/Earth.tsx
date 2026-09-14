@@ -10,22 +10,13 @@ interface Props {
 export default function Earth({ globeRef }: Props) {
   useEffect(() => {
     const globe = globeRef.current;
-
-    if (!globe) {
-      return;
-    }
+    if (!globe) return;
 
     const scene = globe.scene();
     const controls = globe.controls();
 
-    //
-    // Dark space background
-    //
     scene.background = new THREE.Color("#02040a");
 
-    //
-    // Slow Earth rotation
-    //
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.02;
 

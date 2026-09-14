@@ -1,27 +1,24 @@
 use chrono::{DateTime, Utc};
 use sgp4::{Constants, Elements};
 
-use crate::{orbit::position::SatellitePosition, satellite::model::Satellite};
+use crate::orbit::position::SatellitePosition;
 
 const EARTH_RADIUS_KM: f64 = 6378.137;
 
-pub fn propagate(satellite: &Satellite) -> Result<SatellitePosition, String> {
-    propagate_at(satellite, Utc::now())
+pub fn propagate(
+    norad_id: u32,
+    elements: &Elements,
+    constants: &Constants,
+) -> Result<SatellitePosition, String> {
+    propagate_at(norad_id, elements, constants, Utc::now())
 }
 
 pub fn propagate_at(
-    satellite: &Satellite,
+    norad_id: u32,
+    elements: &Elements,
+    constants: &Constants,
     timestamp: DateTime<Utc>,
 ) -> Result<SatellitePosition, String> {
-    let elements = Elements::from_tle(
-        Some(satellite.name.clone()),
-        satellite.line1.as_bytes(),
-        satellite.line2.as_bytes(),
-    )
-    .map_err(|e| e.to_string())?;
-
-    let constants = Constants::from_elements(&elements).map_err(|e| e.to_string())?;
-
     let minutes = elements
         .datetime_to_minutes_since_epoch(&timestamp.naive_utc())
         .map_err(|e| e.to_string())?;
@@ -43,11 +40,10 @@ pub fn propagate_at(
     let altitude_km = distance_from_center - EARTH_RADIUS_KM;
 
     let velocity = prediction.velocity;
-
     let velocity_km_s = (velocity[0].powi(2) + velocity[1].powi(2) + velocity[2].powi(2)).sqrt();
 
     Ok(SatellitePosition {
-        norad_id: satellite.norad_id,
+        norad_id,
         latitude,
         longitude,
         altitude_km,
@@ -58,7 +54,6 @@ pub fn propagate_at(
 
 fn teme_to_ecef(position: [f64; 3], timestamp: &DateTime<Utc>) -> [f64; 3] {
     let theta = gmst_radians(timestamp);
-
     let cos_theta = theta.cos();
     let sin_theta = theta.sin();
 
@@ -70,9 +65,9 @@ fn teme_to_ecef(position: [f64; 3], timestamp: &DateTime<Utc>) -> [f64; 3] {
 }
 
 fn gmst_radians(timestamp: &DateTime<Utc>) -> f64 {
-    let julian_date = timestamp.timestamp() as f64 / 86_400.0
-        + timestamp.timestamp_subsec_nanos() as f64 / 86_400.0 / 1_000_000_000.0
-        + 2_440_587.5;
+    let julian_date = 2_440_587.5
+        + timestamp.timestamp() as f64 / 86_400.0
+        + timestamp.timestamp_subsec_nanos() as f64 / 86_400_000_000_000.0;
 
     let days_since_j2000 = julian_date - 2_451_545.0;
     let centuries_since_j2000 = days_since_j2000 / 36_525.0;
@@ -88,26 +83,16 @@ fn gmst_radians(timestamp: &DateTime<Utc>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn iss() -> Satellite {
-        Satellite {
-            norad_id: 25544,
-            name: "ISS (ZARYA)".to_string(),
-            line1: "1 25544U 98067A   26203.79832414  .00009714  00000+0  18351-3 0  9992"
-                .to_string(),
-            line2: "2 25544  51.6313 123.8641 0006897 326.7338  33.3216 15.49102905577270"
-                .to_string(),
-            orbit: None,
-        }
-    }
+    use crate::satellite::model::Satellite;
 
     #[test]
     fn propagates_iss_position() {
-        let timestamp = DateTime::parse_from_rfc3339("2026-09-10T12:00:00Z")
+        let sat = Satellite::for_test(25544, "ISS (ZARYA)");
+        let timestamp = DateTime::parse_from_rfc3339("2026-09-12T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
 
-        let position = propagate_at(&iss(), timestamp)
+        let position = propagate_at(sat.norad_id, &sat.elements, &sat.constants, timestamp)
             .unwrap_or_else(|error| panic!("Propagation failed: {error}"));
 
         assert_eq!(position.norad_id, 25544);
@@ -115,27 +100,25 @@ mod tests {
         assert!(position.longitude.is_finite());
         assert!(position.altitude_km.is_finite());
         assert!(position.velocity_km_s.is_finite());
-
         assert!((-90.0..=90.0).contains(&position.latitude));
         assert!((-180.0..=180.0).contains(&position.longitude));
-
         assert!(position.altitude_km > 300.0);
         assert!(position.altitude_km < 500.0);
-
         assert!(position.velocity_km_s > 7.0);
         assert!(position.velocity_km_s < 8.5);
     }
 
     #[test]
     fn longitude_changes_over_time() {
-        let first_time = DateTime::parse_from_rfc3339("2026-09-10T12:00:00Z")
+        let sat = Satellite::for_test(25544, "ISS (ZARYA)");
+        let first_time = DateTime::parse_from_rfc3339("2026-09-12T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-
         let second_time = first_time + chrono::Duration::minutes(10);
 
-        let first = propagate_at(&iss(), first_time).unwrap();
-        let second = propagate_at(&iss(), second_time).unwrap();
+        let first = propagate_at(sat.norad_id, &sat.elements, &sat.constants, first_time).unwrap();
+        let second =
+            propagate_at(sat.norad_id, &sat.elements, &sat.constants, second_time).unwrap();
 
         assert_ne!(first.longitude, second.longitude);
     }

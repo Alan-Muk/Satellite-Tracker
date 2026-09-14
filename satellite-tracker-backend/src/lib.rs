@@ -1,5 +1,5 @@
 pub mod api;
-pub mod config;
+pub mod error;
 pub mod orbit;
 pub mod routes;
 pub mod satellite;

@@ -3,18 +3,23 @@ import { useState } from "react";
 import { useActiveSatellitePrediction } from "./hooks/useActiveSatellitePrediction";
 import { useSatelliteData } from "./hooks/useSatelliteData";
 import { useSatelliteFilters } from "./hooks/useSatelliteFilters";
+import { useSatelliteGroups } from "./hooks/useSatelliteGroups";
+import { useSatelliteOrbits } from "./hooks/useSatelliteOrbits";
 import { useSatellitePositions } from "./hooks/useSatellitePositions";
 
+import ControlPanel from "./components/ControlPanel";
 import GlobeView from "./components/GlobeView";
-import TrackerPanel from "./components/TrackerPanel";
 
 function App() {
   const { satellites } = useSatelliteData();
 
-  const { selectedRegion, setSelectedRegion, highlightedIds } =
-    useSatelliteFilters({
-      satellites,
-    });
+  const {
+    selectedGroup,
+    setSelectedGroup,
+    selectedRegion,
+    setSelectedRegion,
+    highlightedIds,
+  } = useSatelliteFilters({ satellites });
 
   const [selectedNorad, setSelectedNorad] = useState<number | null>(null);
 
@@ -25,9 +30,12 @@ function App() {
 
   useActiveSatellitePrediction(selectedNorad);
 
-  const selectedSatellite = satellites.find(
-    (satellite) => satellite.norad_id === selectedNorad,
-  );
+  const groups = useSatelliteGroups();
+  const orbits = useSatelliteOrbits();
+
+  const selectedSatellite =
+    satellites.find((satellite) => satellite.norad_id === selectedNorad) ??
+    null;
 
   return (
     <div className="app">
@@ -44,13 +52,18 @@ function App() {
         />
       </main>
 
-      {selectedSatellite && position && (
-        <TrackerPanel
-          satellite={selectedSatellite}
-          position={position}
-          onClose={() => setSelectedNorad(null)}
-        />
-      )}
+      <ControlPanel
+        satelliteCount={satellites.length}
+        groups={groups}
+        orbits={orbits}
+        selectedGroup={selectedGroup}
+        selectedRegion={selectedRegion}
+        onGroupChange={setSelectedGroup}
+        onRegionChange={setSelectedRegion}
+        selectedSatellite={selectedSatellite}
+        selectedPosition={position}
+        onClearSelection={() => setSelectedNorad(null)}
+      />
     </div>
   );
 }

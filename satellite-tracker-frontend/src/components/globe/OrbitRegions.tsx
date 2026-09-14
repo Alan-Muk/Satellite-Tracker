@@ -1,9 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { GlobeMethods } from "react-globe.gl";
 
 import type { OrbitRegion } from "../../api";
-
 import { useOrbitCamera } from "../../hooks/useOrbitCamera";
 
 import OrbitRegionRenderer from "./OrbitRegionRenderer";
@@ -11,9 +10,7 @@ import { createOrbitRegionPicker } from "./OrbitRegionPicker";
 
 interface Props {
   globeRef: MutableRefObject<GlobeMethods | undefined>;
-
   selectedRegion: OrbitRegion | "ALL";
-
   onSelectRegion: (region: OrbitRegion | "ALL") => void;
 }
 
@@ -22,31 +19,21 @@ export default function OrbitRegions({
   selectedRegion,
   onSelectRegion,
 }: Props) {
-  const { flyToRegion } = useOrbitCamera({
-    globeRef,
-  });
+  const { flyToRegion } = useOrbitCamera({ globeRef });
 
-  //
-  // Move the camera when a specific
-  // orbit region is selected.
-  //
+  const onSelectRef = useRef(onSelectRegion);
   useEffect(() => {
-    if (selectedRegion === "ALL") {
-      return;
-    }
+    onSelectRef.current = onSelectRegion;
+  }, [onSelectRegion]);
 
+  useEffect(() => {
+    if (selectedRegion === "ALL") return;
     flyToRegion(selectedRegion);
   }, [selectedRegion, flyToRegion]);
 
-  //
-  // Install region picking.
-  //
   useEffect(() => {
     const globe = globeRef.current;
-
-    if (!globe) {
-      return;
-    }
+    if (!globe) return;
 
     const canvas = globe.renderer().domElement;
 
@@ -54,11 +41,11 @@ export default function OrbitRegions({
       scene: globe.scene(),
       camera: globe.camera(),
       canvas,
-      onSelect: onSelectRegion,
+      onSelect: (region) => onSelectRef.current(region),
     });
 
     return cleanup;
-  }, [globeRef, onSelectRegion]);
+  }, [globeRef]);
 
   return (
     <OrbitRegionRenderer globeRef={globeRef} selectedRegion={selectedRegion} />

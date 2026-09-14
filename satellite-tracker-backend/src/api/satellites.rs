@@ -8,11 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
+    api::satellite_response::SatelliteResponse,
+    error::AppError,
     orbit::{
-        position::SatellitePosition, predictor::generate_prediction, propagator::propagate,
-        trajectory::OrbitPrediction,
+        metadata::OrbitMetadata, position::SatellitePosition, predictor::generate_prediction,
+        propagator::propagate, region::OrbitRegion, trajectory::OrbitPrediction,
     },
-    satellite::{metadata::OrbitMetadata, model::Satellite},
+    satellite::group::SatelliteGroup,
     state::AppState,
 };
 
@@ -29,79 +31,66 @@ pub struct SatelliteSummary {
 
 #[derive(Debug, Deserialize)]
 pub struct SatelliteFilter {
-    pub group: Option<String>,
-
-    pub orbit: Option<String>,
-
+    pub group: Option<SatelliteGroup>,
+    pub orbit: Option<OrbitRegion>,
     pub limit: Option<usize>,
 }
+
+const DEFAULT_LIMIT: usize = 500;
+const MAX_LIMIT: usize = 5000;
 
 pub async fn list_satellites(
     State(state): State<AppState>,
     Query(filter): Query<SatelliteFilter>,
-) -> Json<Vec<SatelliteSummary>> {
+) -> Json<Vec<SatelliteResponse>> {
     let manager = state.manager.read().await;
 
-    let mut satellites = manager.all();
+    let limit = filter.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
 
-    if let Some(group) = filter.group {
-        satellites.retain(|satellite| satellite.group().to_string() == group);
-    }
-
-    if let Some(orbit) = filter.orbit {
-        satellites.retain(|satellite| {
-            satellite
-                .orbit
-                .as_ref()
-                .map(|o| format!("{:?}", o.region))
-                .unwrap_or_default()
-                == orbit
-        });
-    }
-
-    let limit = filter.limit.unwrap_or(500);
-
-    satellites.truncate(limit);
-
-    let satellites = satellites
-        .into_iter()
-        .map(|satellite| SatelliteSummary {
-            norad_id: satellite.norad_id,
-
-            name: satellite.name.trim().to_string(),
-
-            group: satellite.group().to_string(),
-
-            orbit: satellite.orbit,
+    let mut response: Vec<SatelliteResponse> = manager
+        .iter()
+        .filter(|sat| {
+            filter.group.map_or(true, |g| sat.group == g)
+                && filter
+                    .orbit
+                    .map_or(true, |r| sat.orbit.map_or(false, |o| o.region == r))
         })
+        .take(limit)
+        .map(|sat| SatelliteResponse::from(sat.as_ref()))
         .collect();
 
-    Json(satellites)
+    response.sort_unstable_by_key(|s| s.norad_id);
+
+    Json(response)
 }
 
 pub async fn get_satellite(
     State(state): State<AppState>,
     Path(norad_id): Path<u32>,
-) -> Result<Json<Satellite>, axum::http::StatusCode> {
+) -> Result<Json<SatelliteResponse>, AppError> {
     let manager = state.manager.read().await;
 
     match manager.get(norad_id) {
-        Some(satellite) => Ok(Json(satellite.clone())),
-        None => Err(axum::http::StatusCode::NOT_FOUND),
+        Some(satellite) => Ok(Json(SatelliteResponse::from(satellite.as_ref()))),
+        None => Err(AppError::NotFound(norad_id)),
     }
 }
 
 pub async fn get_satellite_position(
     State(state): State<AppState>,
     Path(norad_id): Path<u32>,
-) -> Result<Json<SatellitePosition>, String> {
-    let manager = state.manager.read().await;
+) -> Result<Json<SatellitePosition>, AppError> {
+    let satellite = {
+        let manager = state.manager.read().await;
+        manager.get(norad_id).ok_or(AppError::NotFound(norad_id))?
+    }; // lock dropped here
 
-    let satellite = manager
-        .get(norad_id)
-        .ok_or_else(|| "Satellite not found".to_string())?;
-
-    let position = propagate(satellite)?;
+    let position = propagate(
+        satellite.norad_id,
+        &satellite.elements,
+        &satellite.constants,
+    )
+    .map_err(AppError::Propagation)?;
 
     Ok(Json(position))
 }
@@ -109,48 +98,27 @@ pub async fn get_satellite_position(
 pub async fn get_satellite_prediction(
     State(state): State<AppState>,
     Path(norad_id): Path<u32>,
-) -> Result<Json<OrbitPrediction>, String> {
-    let manager = state.manager.read().await;
+) -> Result<Json<OrbitPrediction>, AppError> {
+    let satellite = {
+        let manager = state.manager.read().await;
+        manager.get(norad_id).ok_or(AppError::NotFound(norad_id))?
+    };
 
-    let satellite = manager
-        .get(norad_id)
-        .ok_or_else(|| "Satellite not found".to_string())?;
-
-    let prediction = generate_prediction(satellite, 90)?;
+    let prediction = generate_prediction(&satellite, 90).map_err(AppError::Propagation)?;
 
     Ok(Json(prediction))
 }
 
-pub async fn get_satellite_groups(State(state): State<AppState>) -> Json<HashMap<String, usize>> {
-    let manager = state.manager.read().await;
-
-    let satellites = manager.all();
-
-    let mut groups: HashMap<String, usize> = HashMap::new();
-
-    for satellite in satellites {
-        let group = satellite.group().to_string();
-
-        *groups.entry(group).or_insert(0) += 1;
-    }
-
-    Json(groups)
+pub async fn get_satellite_groups(
+    State(state): State<AppState>,
+) -> Json<HashMap<SatelliteGroup, usize>> {
+    Json(state.stats.by_group.clone())
 }
 
-pub async fn get_satellite_orbits(State(state): State<AppState>) -> Json<HashMap<String, usize>> {
-    let manager = state.manager.read().await;
-
-    let mut regions = HashMap::new();
-
-    for satellite in manager.all() {
-        if let Some(orbit) = &satellite.orbit {
-            let region = format!("{:?}", orbit.region);
-
-            *regions.entry(region).or_insert(0) += 1;
-        }
-    }
-
-    Json(regions)
+pub async fn get_satellite_orbits(
+    State(state): State<AppState>,
+) -> Json<HashMap<OrbitRegion, usize>> {
+    Json(state.stats.by_region.clone())
 }
 
 /*

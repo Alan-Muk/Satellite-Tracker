@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+
 pub enum SatelliteGroup {
     Starlink,
+    #[serde(rename = "ONEWEB")]
     OneWeb,
     Iss,
     Gps,
@@ -89,5 +91,41 @@ impl fmt::Display for SatelliteGroup {
                 Self::Other => "OTHER",
             }
         )
+    }
+}
+
+impl std::str::FromStr for SatelliteGroup {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let upper = s.to_ascii_uppercase();
+        match upper.as_str() {
+            "STARLINK" => Ok(Self::Starlink),
+            "ONEWEB" => Ok(Self::OneWeb),
+            "ISS" => Ok(Self::Iss),
+            "GPS" => Ok(Self::Gps),
+            "WEATHER" => Ok(Self::Weather),
+            "IRIDIUM" => Ok(Self::Iridium),
+            "DEBRIS" => Ok(Self::Debris),
+            "OTHER" => Ok(Self::Other),
+            _ => Err(format!("unknown satellite group: {s}")),
+        }
+    }
+}
+
+#[test]
+fn map_keys_use_screaming_snake_case() {
+    use std::collections::HashMap;
+    let mut m: HashMap<SatelliteGroup, usize> = HashMap::new();
+    for g in SatelliteGroup::all() {
+        m.insert(*g, 1);
+    }
+
+    let json = serde_json::to_string(&m).unwrap();
+
+    for key in [
+        "STARLINK", "ONEWEB", "ISS", "GPS", "WEATHER", "IRIDIUM", "DEBRIS", "OTHER",
+    ] {
+        assert!(json.contains(key), "expected {key} in {json}");
     }
 }

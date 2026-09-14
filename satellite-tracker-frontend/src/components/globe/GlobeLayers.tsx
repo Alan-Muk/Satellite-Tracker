@@ -11,21 +11,13 @@ import type { Satellite, SatellitePosition, OrbitRegion } from "../../api";
 
 interface Props {
   globeRef: MutableRefObject<GlobeMethods | undefined>;
-
   position: SatellitePosition | null;
-
   satellites: SatellitePosition[];
-
   satelliteData: Satellite[];
-
   highlightedIds: number[];
-
   selectedNorad: number | null;
-
   selectedRegion: OrbitRegion | "ALL";
-
   onSelect: (noradId: number) => void;
-
   onRegionSelect: (region: OrbitRegion | "ALL") => void;
 }
 
@@ -43,15 +35,12 @@ export default function GlobeLayers({
   return (
     <>
       <Earth globeRef={globeRef} />
-
       <OrbitRegions
         globeRef={globeRef}
         selectedRegion={selectedRegion}
         onSelectRegion={onRegionSelect}
       />
-
       <SatelliteTrail globeRef={globeRef} satelliteData={satelliteData} />
-
       <SatellitePoints
         globeRef={globeRef}
         satellites={satellites}
@@ -60,7 +49,6 @@ export default function GlobeLayers({
         selectedNorad={selectedNorad}
         onSelect={onSelect}
       />
-
       {selectedNorad !== null && position && (
         <SelectedSatellite globeRef={globeRef} position={position} />
       )}

@@ -29,15 +29,18 @@ pub fn create_router(state: AppState) -> Router {
             "/satellites/{norad_id}/prediction",
             get(get_satellite_prediction),
         )
-        .layer(
+        .layer({
+            let allowed = std::env::var("ALLOWED_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:5173".to_string());
+            let origins: Vec<axum::http::HeaderValue> = allowed
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
             CorsLayer::new()
-                .allow_origin(
-                    "http://localhost:5173"
-                        .parse::<axum::http::HeaderValue>()
-                        .unwrap(),
-                )
-                .allow_methods([axum::http::Method::GET]),
-        )
+                .allow_origin(origins)
+                .allow_methods([axum::http::Method::GET])
+                .allow_headers([axum::http::header::CONTENT_TYPE])
+        })
         .with_state(state)
 }
 

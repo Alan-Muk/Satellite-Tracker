@@ -566,6 +566,14 @@ These tests ensure correctness of both parsing logic and API behaviour.
 - Vite
 
 ---
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-24-00" src="https://github.com/user-attachments/assets/344a08ae-8a78-4d01-80ab-2e94e619e0f2" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-23-17" src="https://github.com/user-attachments/assets/017df147-bb2f-41be-92b0-9198900c117b" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-23-06" src="https://github.com/user-attachments/assets/d1e6e8b1-9fe6-4256-b078-027687c21eaa" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-22-48" src="https://github.com/user-attachments/assets/828a41a9-9b6c-4b16-bd84-1349c59c4c4b" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-22-31" src="https://github.com/user-attachments/assets/a8f27fc6-d20e-4442-86cd-a97affdc7019" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-14 08-22-13" src="https://github.com/user-attachments/assets/93a7feb5-eaaa-4d51-8960-6c50695d029b" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-12 17-17-09" src="https://github.com/user-attachments/assets/7aa6cf61-b620-4b89-b32e-862f86089511" />
+<img width="1366" height="768" alt="Screenshot From 2026-09-12 17-13-29" src="https://github.com/user-attachments/assets/36ffd33a-76db-476a-a4c5-131f41d9cd8b" />
 
 # Future Improvements
 

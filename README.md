@@ -4,7 +4,7 @@
 ![Axum](https://img.shields.io/badge/Axum-Web_Server-000000)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
-![CesiumJS](https://img.shields.io/badge/CesiumJS-3D_Globe-6CADDF)
+![Three.js](https://img.shields.io/badge/Three.js-3D_Renderer-000000?logo=three.js)
 ![Tokio](https://img.shields.io/badge/Tokio-Async_Runtime-000000)
 ![License](https://img.shields.io/badge/License-MIT-green)
 

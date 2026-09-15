@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: satellite-tracker-backend
+    runtime: docker
+    plan: free
+    region: frankfurt  # closest to you; use oregon if you prefer
+    rootDir: satellite-tracker-backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://alan-muk.github.io,http://localhost:5173
+      - key: PORT
+        value: "3000"
